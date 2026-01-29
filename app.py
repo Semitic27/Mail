@@ -2573,6 +2573,59 @@ def _add_mailbox(db, data):
             existing = cursor.fetchone()
             
         if existing:
+            # 邮箱已存在，检查是否需要添加到分组
+            mailbox_id = existing[0]
+            
+            # 如果提供了分组ID，尝试将已存在的邮箱添加到该分组
+            if group_id and group_id not in ['-1', 'null', 'undefined', '']:
+                try:
+                    group_id_int = int(group_id)
+                    if group_id_int > 0:  # Only for valid group IDs
+                        # 检查该邮箱是否已在该分组中
+                        if db_type == 'sqlite':
+                            existing_mapping = db.execute(
+                                'SELECT id FROM mailbox_group_mappings WHERE mailbox_id = ? AND group_id = ?',
+                                (mailbox_id, group_id_int)
+                            ).fetchone()
+                        else:
+                            cursor = db.cursor()
+                            cursor.execute(
+                                'SELECT id FROM mailbox_group_mappings WHERE mailbox_id = %s AND group_id = %s',
+                                (mailbox_id, group_id_int)
+                            )
+                            existing_mapping = cursor.fetchone()
+                        
+                        if existing_mapping:
+                            return jsonify({
+                                'success': False,
+                                'message': '邮箱在该分组中已存在'
+                            })
+                        
+                        # 添加邮箱到新分组
+                        now = get_beijing_time()
+                        if db_type == 'sqlite':
+                            db.execute('''
+                                INSERT INTO mailbox_group_mappings (mailbox_id, group_id, created_at)
+                                VALUES (?, ?, ?)
+                            ''', (mailbox_id, group_id_int, now))
+                            db.commit()
+                        else:
+                            cursor = db.cursor()
+                            cursor.execute('''
+                                INSERT INTO mailbox_group_mappings (mailbox_id, group_id, created_at)
+                                VALUES (%s, %s, %s)
+                            ''', (mailbox_id, group_id_int, now))
+                            db.commit()
+                        
+                        return jsonify({
+                            'success': True,
+                            'message': '邮箱已添加到该分组'
+                        })
+                except (ValueError, TypeError):
+                    # group_id 无效（非整数或None），忽略并返回通用错误
+                    pass
+            
+            # 没有提供有效的分组ID，返回邮箱已存在错误
             return jsonify({
                 'success': False,
                 'message': '邮箱已存在'
@@ -2686,6 +2739,55 @@ def _batch_add_mailbox(db, data):
                 existing = cursor.fetchone()
                 
             if existing:
+                # 邮箱已存在，检查是否需要添加到分组
+                mailbox_id = existing[0]
+                
+                # 如果提供了分组ID，尝试将已存在的邮箱添加到该分组
+                if group_id and group_id not in ['-1', 'null', 'undefined', '']:
+                    try:
+                        group_id_int = int(group_id)
+                        if group_id_int > 0:  # Only for valid group IDs
+                            # 检查该邮箱是否已在该分组中
+                            if db_type == 'sqlite':
+                                existing_mapping = db.execute(
+                                    'SELECT id FROM mailbox_group_mappings WHERE mailbox_id = ? AND group_id = ?',
+                                    (mailbox_id, group_id_int)
+                                ).fetchone()
+                            else:
+                                cursor = db.cursor()
+                                cursor.execute(
+                                    'SELECT id FROM mailbox_group_mappings WHERE mailbox_id = %s AND group_id = %s',
+                                    (mailbox_id, group_id_int)
+                                )
+                                existing_mapping = cursor.fetchone()
+                            
+                            if not existing_mapping:
+                                # 添加邮箱到新分组
+                                now = get_beijing_time()
+                                if db_type == 'sqlite':
+                                    db.execute('''
+                                        INSERT INTO mailbox_group_mappings (mailbox_id, group_id, created_at)
+                                        VALUES (?, ?, ?)
+                                    ''', (mailbox_id, group_id_int, now))
+                                else:
+                                    cursor = db.cursor()
+                                    cursor.execute('''
+                                        INSERT INTO mailbox_group_mappings (mailbox_id, group_id, created_at)
+                                        VALUES (%s, %s, %s)
+                                    ''', (mailbox_id, group_id_int, now))
+                                
+                                success_count += 1
+                                continue
+                            else:
+                                # 如果已在该分组中，记录错误并继续
+                                error_count += 1
+                                errors.append(f'邮箱在该分组中已存在：{email}')
+                                continue
+                    except (ValueError, TypeError):
+                        # group_id 无效（非整数或None），忽略并记录通用错误
+                        pass
+                
+                # 没有提供有效的分组ID或其他情况，记录错误
                 error_count += 1
                 errors.append(f'邮箱已存在：{email}')
                 continue
