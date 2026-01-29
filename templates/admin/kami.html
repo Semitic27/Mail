@@ -1004,6 +1004,34 @@
         padding: 8px 10px;
     }
     
+    /* 分组展开/折叠按钮 */
+    .group-toggle {
+        width: 20px;
+        height: 20px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        color: #6b7280;
+        cursor: pointer;
+        margin-right: 5px;
+        user-select: none;
+    }
+    
+    .group-toggle.placeholder {
+        visibility: hidden;
+    }
+    
+    .group-children {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+    
+    .group-children.collapsed {
+        display: none;
+    }
+    
     /* 右侧邮箱列表项样式（不显示服务器信息） */
     .email-list-item {
         padding: 12px 15px;
@@ -1388,8 +1416,9 @@
                     </div>
                     <!-- 右侧邮箱列表 -->
                     <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
-                        <div style="margin-bottom: 15px;">
-                            <input type="text" id="emailSearchInput" class="form-control" placeholder="搜索邮箱地址..." oninput="filterEmailsInModal()">
+                        <div style="margin-bottom: 15px; display: flex; gap: 8px; align-items: center;">
+                            <input type="text" id="emailSearchInput" class="form-control" placeholder="搜索邮箱地址..." oninput="filterEmailsInModal()" style="flex: 1;">
+                            <button type="button" class="btn btn-secondary" onclick="clearEmailSearch()" style="white-space: nowrap;">清除</button>
                         </div>
                         <div id="emailListContainer" style="flex: 1; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px;">
                             <!-- 邮箱列表将通过JavaScript动态加载 -->
@@ -2369,6 +2398,7 @@
     let allMailboxes = [];
     let allMailboxGroups = [];
     let allMailboxGroupMappings = [];
+    let collapsedGroupsInModal = {}; // 跟踪模态框中折叠的分组
 
     // 打开邮箱选择模态框
     async function openEmailSelectionModal() {
@@ -2462,6 +2492,7 @@
     function renderGroupInList(container, group, groupMailboxMap, level) {
         const mailboxes = groupMailboxMap.get(group.id) || [];
         const subGroups = allMailboxGroups.filter(g => g.parent_id === group.id);
+        const hasChildren = subGroups.length > 0;
         
         // 递归计算总邮箱数
         function countTotalMailboxes(groupId) {
@@ -2473,23 +2504,55 @@
         
         const totalMailboxes = countTotalMailboxes(group.id);
         
+        // 创建分组容器
+        const groupWrapper = document.createElement('div');
+        
+        // 创建分组项
         const groupItem = document.createElement('div');
         groupItem.className = level > 0 ? 'group-list-item subgroup-item' : 'group-list-item';
         groupItem.dataset.groupId = group.id;
-        groupItem.textContent = `${escapeHtml(group.name)} (${totalMailboxes})`;
-        groupItem.onclick = function() {
+        
+        // 添加展开/折叠按钮
+        const toggle = document.createElement('span');
+        toggle.className = hasChildren ? 'group-toggle' : 'group-toggle placeholder';
+        toggle.textContent = hasChildren ? (collapsedGroupsInModal[group.id] ? '▸' : '▾') : '';
+        if (hasChildren) {
+            toggle.onclick = function(e) {
+                e.stopPropagation();
+                collapsedGroupsInModal[group.id] = !collapsedGroupsInModal[group.id];
+                renderEmailGroups(); // 重新渲染分组列表
+            };
+        }
+        
+        // 添加分组名称
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = `${escapeHtml(group.name)} (${totalMailboxes})`;
+        
+        groupItem.appendChild(toggle);
+        groupItem.appendChild(nameSpan);
+        
+        groupItem.onclick = function(e) {
+            // 如果点击的是toggle按钮，不触发分组选择
+            if (e.target === toggle) return;
+            
             // 获取该分组及所有子分组的邮箱
             const allGroupMailboxes = getAllMailboxesInGroup(group.id, groupMailboxMap);
             selectGroupInModal(group.id, allGroupMailboxes);
         };
-        container.appendChild(groupItem);
+        
+        groupWrapper.appendChild(groupItem);
         
         // 渲染子分组
-        if (subGroups.length > 0) {
+        if (hasChildren && !collapsedGroupsInModal[group.id]) {
+            const childrenContainer = document.createElement('div');
+            childrenContainer.className = 'group-children';
             subGroups.forEach(subGroup => {
-                renderGroupInList(container, subGroup, groupMailboxMap, level + 1);
+                renderGroupInList(childrenContainer, subGroup, groupMailboxMap, level + 1);
             });
+            groupWrapper.appendChild(childrenContainer);
         }
+        
+        container.appendChild(groupWrapper);
     }
     
     // 获取分组及其所有子分组的邮箱
@@ -2569,6 +2632,12 @@
         document.getElementById('editBoundEmailId').value = '';
         document.getElementById('editBoundEmailDisplay').value = '';
         showToast('已清除邮箱选择', 'success');
+    }
+    
+    // 清除邮箱搜索
+    function clearEmailSearch() {
+        document.getElementById('emailSearchInput').value = '';
+        filterEmailsInModal(); // 重新触发过滤，显示当前分组的所有邮箱
     }
     
     // 过滤邮箱
