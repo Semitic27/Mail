@@ -2777,7 +2777,11 @@ def _batch_add_mailbox(db, data):
                                 
                                 success_count += 1
                                 continue
-                            # 如果已在该分组中，记录错误并继续
+                            else:
+                                # 如果已在该分组中，记录错误并继续
+                                error_count += 1
+                                errors.append(f'邮箱在该分组中已存在：{email}')
+                                continue
                     except (ValueError, TypeError):
                         pass
                 
