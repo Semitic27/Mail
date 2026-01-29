@@ -2537,11 +2537,21 @@
             item.dataset.email = mailbox.email;
             item.dataset.id = mailbox.id;
             
-            item.innerHTML = `
-                <div class="email-list-item-address">${escapeHtml(mailbox.email)}</div>
-                <button class="email-list-item-select-btn" onclick="selectEmail(${mailbox.id}, '${escapeHtml(mailbox.email).replace(/'/g, "\\'")}')">选择</button>
-            `;
+            const addressDiv = document.createElement('div');
+            addressDiv.className = 'email-list-item-address';
+            addressDiv.textContent = mailbox.email;
             
+            const selectBtn = document.createElement('button');
+            selectBtn.className = 'email-list-item-select-btn';
+            selectBtn.textContent = '选择';
+            selectBtn.dataset.mailboxId = mailbox.id;
+            selectBtn.dataset.mailboxEmail = mailbox.email;
+            selectBtn.onclick = function() {
+                selectEmail(parseInt(this.dataset.mailboxId), this.dataset.mailboxEmail);
+            };
+            
+            item.appendChild(addressDiv);
+            item.appendChild(selectBtn);
             container.appendChild(item);
         });
     }
@@ -2597,8 +2607,6 @@
             m.email.toLowerCase().includes(searchTerm)
         );
         renderEmailList(filteredMailboxes);
-    }
-        });
     }
     
     // HTML转义函数
