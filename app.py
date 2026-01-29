@@ -1545,6 +1545,42 @@ def reorder_unified_proxy_ids(db, db_type):
             except:
                 pass
 
+def cleanup_orphaned_proxy_ids(db, db_type):
+    """清理孤立的统一代理ID记录（代理已删除但unified_proxy_ids中还有记录）但不重新排序ID"""
+    try:
+        # 删除孤立的统一ID记录（对应的代理不存在）
+        if db_type == 'sqlite':
+            db.execute('''
+                DELETE FROM unified_proxy_ids
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM http_proxies hp WHERE hp.id = unified_proxy_ids.proxy_table_id AND unified_proxy_ids.proxy_type = 'http'
+                    UNION
+                    SELECT 1 FROM socks5_proxies sp WHERE sp.id = unified_proxy_ids.proxy_table_id AND unified_proxy_ids.proxy_type = 'socks5'
+                )
+            ''')
+            db.commit()
+        else:
+            cursor = db.cursor()
+            cursor.execute('''
+                DELETE FROM unified_proxy_ids
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM http_proxies hp WHERE hp.id = unified_proxy_ids.proxy_table_id AND unified_proxy_ids.proxy_type = 'http'
+                    UNION
+                    SELECT 1 FROM socks5_proxies sp WHERE sp.id = unified_proxy_ids.proxy_table_id AND unified_proxy_ids.proxy_type = 'socks5'
+                )
+            ''')
+            db.commit()
+        
+        logger.info("Orphaned proxy unified IDs cleaned up successfully")
+        
+    except Exception as e:
+        logger.error(f"Error cleaning up orphaned proxy unified IDs: {e}")
+        if db_type != 'sqlite':
+            try:
+                db.rollback()
+            except:
+                pass
+
 def reorder_mailbox_ids(db, db_type):
     """重新排序邮箱ID，确保删除后ID连续"""
     try:
@@ -3732,8 +3768,8 @@ def api_admin_proxies(proxy_type):
                 cursor.execute(f'DELETE FROM {table_name} WHERE id = %s', (proxy_id,))
                 db.commit()
             
-            # 重新排序统一代理ID
-            reorder_unified_proxy_ids(db, db_type)
+            # 清理孤立的统一代理ID记录，但不重新排序（保留ID间隙以便重用）
+            cleanup_orphaned_proxy_ids(db, db_type)
             
             return jsonify({
                 'success': True,
@@ -4144,8 +4180,8 @@ def _batch_delete_proxy(db, table_name, data):
             cursor.execute(f'DELETE FROM {table_name} WHERE id IN ({placeholders})', proxy_ids)
             db.commit()
         
-        # 重新排序统一代理ID
-        reorder_unified_proxy_ids(db, app.config['DATABASE_TYPE'])
+        # 清理孤立的统一代理ID记录，但不重新排序（保留ID间隙以便重用）
+        cleanup_orphaned_proxy_ids(db, app.config['DATABASE_TYPE'])
         
         return jsonify({
             'success': True,
