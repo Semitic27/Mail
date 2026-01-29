@@ -1028,14 +1028,40 @@
         margin: 0;
     }
     
-    /* 右侧邮箱列表项样式（不显示服务器信息） */
+    /* 右侧邮箱列表项样式（表格布局） */
+    .email-list-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 15px;
+        background: #f3f4f6;
+        border-bottom: 2px solid #e5e7eb;
+        font-weight: 600;
+        color: #374151;
+        font-size: 13px;
+    }
+    
+    .email-list-header-email {
+        flex: 1;
+        min-width: 0;
+    }
+    
+    .email-list-header-remark {
+        flex: 1;
+        min-width: 0;
+    }
+    
+    .email-list-header-action {
+        width: 80px;
+        text-align: center;
+        flex-shrink: 0;
+    }
+    
     .email-list-item {
         padding: 12px 15px;
         border-bottom: 1px solid #f3f4f6;
-        cursor: pointer;
         transition: all 0.2s ease;
         display: flex;
-        justify-content: space-between;
         align-items: center;
         gap: 12px;
     }
@@ -1048,15 +1074,9 @@
         border-bottom: none;
     }
     
-    .email-list-item-info {
+    .email-list-item-address {
         flex: 1;
         min-width: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-    }
-    
-    .email-list-item-address {
         font-weight: 500;
         color: #111827;
         overflow: hidden;
@@ -1066,7 +1086,9 @@
     }
     
     .email-list-item-remark {
-        font-size: 12px;
+        flex: 1;
+        min-width: 0;
+        font-size: 13px;
         color: #6b7280;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -1074,7 +1096,8 @@
     }
     
     .email-list-item-select-btn {
-        padding: 6px 16px;
+        width: 80px;
+        padding: 6px 12px;
         background: var(--primary-color);
         color: white;
         border: none;
@@ -1085,6 +1108,7 @@
         font-weight: 500;
         flex-shrink: 0;
         white-space: nowrap;
+        text-align: center;
     }
     
     .email-list-item-select-btn:hover {
@@ -1423,7 +1447,7 @@
                 <h3 class="modal-title">选择邮箱</h3>
                 <button class="modal-close" onclick="closeModal('emailSelectionModal')">&times;</button>
             </div>
-            <div class="modal-body" style="max-height: calc(85vh - 140px); overflow: hidden;">
+            <div class="modal-body" style="max-height: calc(85vh - 140px); overflow-y: hidden;">
                 <div style="display: flex; gap: 15px; height: 100%; min-height: 500px;">
                     <!-- 左侧分组列表 -->
                     <div style="width: 200px; border-right: 1px solid #e5e7eb; overflow-y: auto; padding-right: 10px;">
@@ -1438,7 +1462,7 @@
                             <input type="text" id="emailSearchInput" class="form-control" placeholder="搜索邮箱地址..." oninput="filterEmailsInModal()" style="flex: 1;">
                             <button type="button" class="btn btn-danger" onclick="clearEmailSearch()" style="white-space: nowrap;">清除</button>
                         </div>
-                        <div id="emailListContainer" style="flex: 1; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; min-height: 0;">
+                        <div id="emailListContainer" style="flex: 1; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px; min-height: 0;">
                             <!-- 邮箱列表将通过JavaScript动态加载 -->
                         </div>
                     </div>
@@ -2617,29 +2641,45 @@
             return;
         }
         
+        // 创建表头
+        const header = document.createElement('div');
+        header.className = 'email-list-header';
+        
+        const headerEmail = document.createElement('div');
+        headerEmail.className = 'email-list-header-email';
+        headerEmail.textContent = '邮箱账号';
+        
+        const headerRemark = document.createElement('div');
+        headerRemark.className = 'email-list-header-remark';
+        headerRemark.textContent = '备注';
+        
+        const headerAction = document.createElement('div');
+        headerAction.className = 'email-list-header-action';
+        headerAction.textContent = '操作';
+        
+        header.appendChild(headerEmail);
+        header.appendChild(headerRemark);
+        header.appendChild(headerAction);
+        container.appendChild(header);
+        
+        // 创建邮箱列表项
         mailboxes.forEach(mailbox => {
             const item = document.createElement('div');
             item.className = 'email-list-item';
             item.dataset.email = mailbox.email;
             item.dataset.id = mailbox.id;
             
-            // 创建邮箱信息容器
-            const infoDiv = document.createElement('div');
-            infoDiv.className = 'email-list-item-info';
-            
-            // 邮箱地址
+            // 邮箱地址列
             const addressDiv = document.createElement('div');
             addressDiv.className = 'email-list-item-address';
             addressDiv.textContent = mailbox.email;
-            infoDiv.appendChild(addressDiv);
+            addressDiv.title = mailbox.email; // 添加悬浮提示显示完整邮箱
             
-            // 备注（如果存在）
-            if (mailbox.remarks && mailbox.remarks.trim()) {
-                const remarkDiv = document.createElement('div');
-                remarkDiv.className = 'email-list-item-remark';
-                remarkDiv.textContent = `备注：${mailbox.remarks}`;
-                infoDiv.appendChild(remarkDiv);
-            }
+            // 备注列（始终显示，如果没有备注则显示空）
+            const remarkDiv = document.createElement('div');
+            remarkDiv.className = 'email-list-item-remark';
+            remarkDiv.textContent = mailbox.remarks && mailbox.remarks.trim() ? mailbox.remarks : '-';
+            remarkDiv.title = mailbox.remarks && mailbox.remarks.trim() ? mailbox.remarks : ''; // 添加悬浮提示显示完整备注
             
             // 选择按钮
             const selectBtn = document.createElement('button');
@@ -2651,7 +2691,8 @@
                 selectEmail(parseInt(this.dataset.mailboxId), this.dataset.mailboxEmail);
             };
             
-            item.appendChild(infoDiv);
+            item.appendChild(addressDiv);
+            item.appendChild(remarkDiv);
             item.appendChild(selectBtn);
             container.appendChild(item);
         });
