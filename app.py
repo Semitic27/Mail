@@ -1346,6 +1346,21 @@ def get_next_unified_proxy_id(db, proxy_type, proxy_table_id):
                 INSERT INTO unified_proxy_ids (id, proxy_type, proxy_table_id)
                 VALUES (?, ?, ?)
             ''', (next_id, proxy_type, proxy_table_id))
+            
+            # 更新SQLite的AUTOINCREMENT序列，确保下次自动分配的ID不会冲突
+            # SQLite的sqlite_sequence表中的seq值应该是最后使用的ID值
+            # 获取当前表中的最大ID
+            max_id_result = db.execute('SELECT MAX(id) as max_id FROM unified_proxy_ids').fetchone()
+            max_id = max_id_result['max_id'] if max_id_result['max_id'] else 0
+            # 更新sqlite_sequence表以确保AUTOINCREMENT从正确的值开始
+            db.execute('''
+                UPDATE sqlite_sequence SET seq = ? WHERE name = 'unified_proxy_ids'
+            ''', (max_id,))
+            # 如果表不在sqlite_sequence中（首次插入），则插入它
+            db.execute('''
+                INSERT OR IGNORE INTO sqlite_sequence (name, seq) VALUES ('unified_proxy_ids', ?)
+            ''', (max_id,))
+            
             unified_id = next_id
         else:
             cursor = db.cursor()
@@ -1366,6 +1381,27 @@ def get_next_unified_proxy_id(db, proxy_type, proxy_table_id):
                 INSERT INTO unified_proxy_ids (id, proxy_type, proxy_table_id)
                 VALUES (%s, %s, %s)
             ''', (next_id, proxy_type, proxy_table_id))
+            
+            # 获取当前表中的最大ID（用于更新序列）
+            cursor.execute('SELECT MAX(id) as max_id FROM unified_proxy_ids')
+            max_id_result = cursor.fetchone()
+            max_id = max_id_result[0] if max_id_result[0] else 0
+            
+            # 对于MySQL/PostgreSQL，需要更新序列
+            if db_type == 'mysql':
+                # MySQL: 设置下一个AUTO_INCREMENT值（应该是max_id + 1）
+                cursor.execute('ALTER TABLE unified_proxy_ids AUTO_INCREMENT = %s', (max_id + 1,))
+            elif db_type == 'postgresql':
+                # PostgreSQL: 使用pg_get_serial_sequence获取序列名，然后更新序列
+                cursor.execute('''
+                    SELECT pg_get_serial_sequence('unified_proxy_ids', 'id')
+                ''')
+                seq_result = cursor.fetchone()
+                if seq_result and seq_result[0]:
+                    seq_name = seq_result[0]
+                    # setval的第二个参数是最后使用的值，第三个参数true表示下次从该值+1开始
+                    cursor.execute('SELECT setval(%s, %s, true)', (seq_name, max_id))
+            
             unified_id = next_id
         
         return unified_id

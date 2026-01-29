@@ -1030,14 +1030,14 @@
     
     /* 右侧邮箱列表项样式（不显示服务器信息） */
     .email-list-item {
-        padding: 12px 15px;
+        padding: 10px 12px;
         border-bottom: 1px solid #f3f4f6;
         cursor: pointer;
         transition: all 0.2s ease;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        gap: 10px;
+        gap: 6px;
     }
     
     .email-list-item:hover {
@@ -1059,7 +1059,7 @@
     }
     
     .email-list-item-select-btn {
-        padding: 6px 18px;
+        padding: 5px 16px;
         background: var(--primary-color);
         color: white;
         border: none;
@@ -1402,15 +1402,15 @@
 
     <!-- 邮箱选择模态框 -->
     <div id="emailSelectionModal" class="modal">
-        <div class="modal-content" style="max-width: 900px; max-height: 85vh;">
+        <div class="modal-content" style="max-width: 700px; max-height: 85vh;">
             <div class="modal-header">
                 <h3 class="modal-title">选择邮箱</h3>
                 <button class="modal-close" onclick="closeModal('emailSelectionModal')">&times;</button>
             </div>
             <div class="modal-body" style="max-height: calc(85vh - 140px); overflow: hidden;">
-                <div style="display: flex; gap: 15px; height: 100%; min-height: 500px;">
+                <div style="display: flex; gap: 12px; height: 100%; min-height: 500px;">
                     <!-- 左侧分组列表 -->
-                    <div style="width: 200px; border-right: 1px solid #e5e7eb; overflow-y: auto; padding-right: 10px;">
+                    <div style="width: 180px; border-right: 1px solid #e5e7eb; overflow-y: auto; padding-right: 8px;">
                         <div style="margin-bottom: 10px; font-weight: 600; color: #374151; padding: 8px;">邮箱分组</div>
                         <div id="emailGroupsList">
                             <!-- 分组列表将通过JavaScript动态加载 -->
@@ -1418,11 +1418,11 @@
                     </div>
                     <!-- 右侧邮箱列表 -->
                     <div style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
-                        <div style="margin-bottom: 15px; display: flex; gap: 8px; align-items: center; flex-shrink: 0;">
+                        <div style="margin-bottom: 12px; display: flex; gap: 6px; align-items: center; flex-shrink: 0;">
                             <input type="text" id="emailSearchInput" class="form-control" placeholder="搜索邮箱地址..." oninput="filterEmailsInModal()" style="flex: 1;">
                             <button type="button" class="btn btn-danger" onclick="clearEmailSearch()" style="white-space: nowrap;">清除</button>
                         </div>
-                        <div id="emailListContainer" style="flex: 1; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; min-height: 0;">
+                        <div id="emailListContainer" style="flex: 1; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; min-height: 0;">
                             <!-- 邮箱列表将通过JavaScript动态加载 -->
                         </div>
                     </div>
