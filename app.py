@@ -1383,6 +1383,21 @@ def reorder_unified_proxy_ids(db, db_type):
         
         # 如果没有记录，直接返回
         if not unified_records:
+            # 当所有代理被删除后，重置自增序列，确保下次插入从1开始
+            try:
+                if db_type == 'sqlite':
+                    db.execute("DELETE FROM sqlite_sequence WHERE name='unified_proxy_ids'")
+                    db.commit()
+                elif db_type == 'mysql':
+                    cursor = db.cursor()
+                    cursor.execute("ALTER TABLE unified_proxy_ids AUTO_INCREMENT = 1")
+                    db.commit()
+                else:  # postgresql
+                    cursor = db.cursor()
+                    cursor.execute("ALTER SEQUENCE IF EXISTS unified_proxy_ids_id_seq RESTART WITH 1")
+                    db.commit()
+            except Exception as reset_error:
+                logger.warning(f"Failed to reset unified_proxy_ids sequence: {reset_error}")
             logger.info("No proxy records to reorder")
             return
         
