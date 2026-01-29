@@ -3768,8 +3768,8 @@ def api_admin_proxies(proxy_type):
                 cursor.execute(f'DELETE FROM {table_name} WHERE id = %s', (proxy_id,))
                 db.commit()
             
-            # 重新排序统一代理ID，确保删除后ID连续
-            reorder_unified_proxy_ids(db, db_type)
+            # 清理孤立的统一代理ID记录，但不重新排序（保持ID稳定，允许复用删除的ID）
+            cleanup_orphaned_proxy_ids(db, db_type)
             
             return jsonify({
                 'success': True,
@@ -4180,8 +4180,8 @@ def _batch_delete_proxy(db, table_name, data):
             cursor.execute(f'DELETE FROM {table_name} WHERE id IN ({placeholders})', proxy_ids)
             db.commit()
         
-        # 重新排序统一代理ID，确保删除后ID连续
-        reorder_unified_proxy_ids(db, app.config['DATABASE_TYPE'])
+        # 清理孤立的统一代理ID记录，但不重新排序（保持ID稳定，允许复用删除的ID）
+        cleanup_orphaned_proxy_ids(db, app.config['DATABASE_TYPE'])
         
         return jsonify({
             'success': True,

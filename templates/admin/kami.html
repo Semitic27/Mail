@@ -1051,10 +1051,11 @@
     .email-list-item-address {
         font-weight: 500;
         color: #111827;
-        flex: 0 1 auto;
+        flex: 1;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        min-width: 0;
     }
     
     .email-list-item-select-btn {
@@ -1067,6 +1068,7 @@
         transition: all 0.2s ease;
         font-size: 13px;
         font-weight: 500;
+        flex-shrink: 0;
     }
     
     .email-list-item-select-btn:hover {
@@ -1400,7 +1402,7 @@
 
     <!-- 邮箱选择模态框 -->
     <div id="emailSelectionModal" class="modal">
-        <div class="modal-content" style="max-width: 1200px; max-height: 85vh;">
+        <div class="modal-content" style="max-width: 900px; max-height: 85vh;">
             <div class="modal-header">
                 <h3 class="modal-title">选择邮箱</h3>
                 <button class="modal-close" onclick="closeModal('emailSelectionModal')">&times;</button>
@@ -1408,7 +1410,7 @@
             <div class="modal-body" style="max-height: calc(85vh - 140px); overflow: hidden;">
                 <div style="display: flex; gap: 15px; height: 100%; min-height: 500px;">
                     <!-- 左侧分组列表 -->
-                    <div style="width: 250px; border-right: 1px solid #e5e7eb; overflow-y: auto; padding-right: 10px;">
+                    <div style="width: 200px; border-right: 1px solid #e5e7eb; overflow-y: auto; padding-right: 10px;">
                         <div style="margin-bottom: 10px; font-weight: 600; color: #374151; padding: 8px;">邮箱分组</div>
                         <div id="emailGroupsList">
                             <!-- 分组列表将通过JavaScript动态加载 -->
@@ -2473,17 +2475,15 @@
         };
         groupsListContainer.appendChild(allGroupItem);
         
-        // 添加"未分组"选项
-        if (ungroupedMailboxes.length > 0) {
-            const ungroupedItem = document.createElement('div');
-            ungroupedItem.className = 'group-list-item';
-            ungroupedItem.dataset.groupId = 'UNGROUPED';
-            ungroupedItem.textContent = `📧 未分组 (${ungroupedMailboxes.length})`;
-            ungroupedItem.onclick = function() {
-                selectGroupInModal('UNGROUPED', ungroupedMailboxes);
-            };
-            groupsListContainer.appendChild(ungroupedItem);
-        }
+        // 添加"未分组"选项（始终显示，即使为空）
+        const ungroupedItem = document.createElement('div');
+        ungroupedItem.className = 'group-list-item';
+        ungroupedItem.dataset.groupId = 'UNGROUPED';
+        ungroupedItem.textContent = `📧 未分组 (${ungroupedMailboxes.length})`;
+        ungroupedItem.onclick = function() {
+            selectGroupInModal('UNGROUPED', ungroupedMailboxes);
+        };
+        groupsListContainer.appendChild(ungroupedItem);
         
         // 渲染根级分组
         const rootGroups = allMailboxGroups.filter(g => !g.parent_id || g.parent_id === null);
