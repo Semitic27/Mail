@@ -1256,7 +1256,6 @@
                                         <th>序号ID</th>
                                         <th>分组</th>
                                         <th>邮箱地址</th>
-                                        <th>邮箱密码</th>
                                         <th>服务器（收/发）</th>
                                         <th>添加时间</th>
                                         <th>备注</th>
@@ -1903,7 +1902,6 @@
                 <td>${rowNumber}</td>
                 <td>${escapeHtml(getMailboxGroupName(mailbox))}</td>
                 <td>${escapeHtml(mailbox.email)}</td>
-                <td>******</td>
                 <td>
                     <div>收：${escapeHtml(mailbox.server)}</div>
                     <div>发：${escapeHtml(mailbox.send_server || mailbox.server || '')}</div>
@@ -1916,7 +1914,7 @@
                         <button class="btn btn-primary btn-small" onclick="openReceiveModal(${mailbox.id})">收件</button>
                         <button class="btn btn-primary btn-small" onclick="openSendModal(${mailbox.id})">发件</button>
                         <button class="btn btn-primary btn-small" onclick="testMailbox(${mailbox.id})">测试</button>
-                        <button class="btn btn-warning btn-small" onclick="editMailboxRemarks(${mailbox.id})">备注</button>
+                        <button class="btn btn-success btn-small" onclick="editMailboxRemarks(${mailbox.id})">备注</button>
                         <button class="btn btn-danger btn-small" onclick="deleteMailbox(${mailbox.id})">删除</button>
                     </div>
                 </td>
