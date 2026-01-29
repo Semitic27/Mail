@@ -1447,10 +1447,10 @@
                 <h3 class="modal-title">选择邮箱</h3>
                 <button class="modal-close" onclick="closeModal('emailSelectionModal')">&times;</button>
             </div>
-            <div class="modal-body" style="flex: 1; min-height: 0; overflow-y: hidden;">
-                <div style="display: flex; gap: 15px; height: 100%;">
+            <div class="modal-body" style="flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column;">
+                <div style="display: flex; gap: 15px; flex: 1; min-height: 0;">
                     <!-- 左侧分组列表 -->
-                    <div style="width: 200px; border-right: 1px solid #e5e7eb; overflow-y: auto; padding-right: 10px; display: flex; flex-direction: column;">
+                    <div style="width: 200px; border-right: 1px solid #e5e7eb; padding-right: 10px; display: flex; flex-direction: column; min-height: 0;">
                         <div style="margin-bottom: 10px; font-weight: 600; color: #374151; padding: 8px; flex-shrink: 0;">邮箱分组</div>
                         <div id="emailGroupsList" style="flex: 1; overflow-y: auto; min-height: 0;">
                             <!-- 分组列表将通过JavaScript动态加载 -->
