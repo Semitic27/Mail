@@ -1415,6 +1415,10 @@ def reorder_unified_proxy_ids(db, db_type):
             db.execute('DROP TABLE unified_proxy_ids')
             db.execute(f'ALTER TABLE {temp_table} RENAME TO unified_proxy_ids')
             
+            # 重建索引
+            db.execute('CREATE INDEX IF NOT EXISTS idx_unified_proxy_ids_type ON unified_proxy_ids(proxy_type)')
+            db.execute('CREATE INDEX IF NOT EXISTS idx_unified_proxy_ids_table_id ON unified_proxy_ids(proxy_table_id)')
+            
             # 更新代理表中的unified_id
             http_records = db.execute('''
                 SELECT upi.id, upi.proxy_table_id 
@@ -1472,6 +1476,10 @@ def reorder_unified_proxy_ids(db, db_type):
             # 删除原表并重命名
             cursor.execute('DROP TABLE unified_proxy_ids')
             cursor.execute(f'ALTER TABLE {temp_table} RENAME TO unified_proxy_ids')
+            
+            # 重建索引
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_unified_proxy_ids_type ON unified_proxy_ids(proxy_type)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_unified_proxy_ids_table_id ON unified_proxy_ids(proxy_table_id)')
             
             # 更新代理表
             cursor.execute('''
@@ -2391,6 +2399,8 @@ def api_admin_mailbox():
             return _batch_delete_mailbox(db, data)
         elif action == 'send_mail':
             return _send_mail(db, data)
+        elif action == 'update_remarks':
+            return _update_mailbox_remarks(db, data)
     
     elif request.method == 'DELETE':
         # 删除邮箱
@@ -2717,6 +2727,48 @@ def _edit_mailbox(db, data):
         return jsonify({
             'success': True,
             'message': '邮箱更新成功'
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'更新失败: {str(e)}'
+        })
+
+def _update_mailbox_remarks(db, data):
+    """更新邮箱备注"""
+    account_id = data.get('id')
+    if not account_id:
+        return jsonify({
+            'success': False,
+            'message': '缺少邮箱ID'
+        })
+    
+    remarks = data.get('remarks', '').strip()
+    
+    try:
+        db_type = app.config['DATABASE_TYPE']
+        now = get_beijing_time()
+        
+        if db_type == 'sqlite':
+            db.execute('''
+                UPDATE mail_accounts 
+                SET remarks=?, updated_at=?
+                WHERE id=?
+            ''', (remarks, now, account_id))
+            db.commit()
+        else:
+            cursor = db.cursor()
+            cursor.execute('''
+                UPDATE mail_accounts 
+                SET remarks=%s, updated_at=%s
+                WHERE id=%s
+            ''', (remarks, now, account_id))
+            db.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': '备注更新成功'
         })
         
     except Exception as e:
