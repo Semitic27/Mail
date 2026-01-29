@@ -2799,6 +2799,7 @@ def _batch_add_mailbox(db, data):
     success_count = 0
     error_count = 0
     errors = []
+    notifications = []  # 用于存储非错误的通知信息
     db_type = app.config['DATABASE_TYPE']
     
     for line in lines:
@@ -2914,10 +2915,10 @@ def _batch_add_mailbox(db, data):
                     pass
             
             success_count += 1
-            # 如果有已存在的分组信息，添加到错误列表作为通知
+            # 如果有已存在的分组信息，添加到通知列表
             if existing_groups:
                 groups_str = '、'.join(existing_groups)
-                errors.append(f'邮箱已存在于{groups_str}中：{email}')
+                notifications.append(f'邮箱已存在于{groups_str}中：{email}')
             
         except Exception as e:
             error_count += 1
@@ -2934,6 +2935,8 @@ def _batch_add_mailbox(db, data):
     message = f'批量添加完成：成功 {success_count} 个，失败 {error_count} 个'
     if errors:
         message += f'\n错误详情：\n' + '\n'.join(errors[:10])  # 只显示前10个错误
+    if notifications:
+        message += f'\n提示信息：\n' + '\n'.join(notifications[:10])  # 显示前10个通知
     
     return jsonify({
         'success': True,
@@ -2941,7 +2944,8 @@ def _batch_add_mailbox(db, data):
         'details': {
             'success_count': success_count,
             'error_count': error_count,
-            'errors': errors
+            'errors': errors,
+            'notifications': notifications
         }
     })
 
