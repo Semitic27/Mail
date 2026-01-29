@@ -1442,17 +1442,17 @@
 
     <!-- 邮箱选择模态框 -->
     <div id="emailSelectionModal" class="modal">
-        <div class="modal-content" style="max-width: min(1000px, 90vw); max-height: 85vh;">
+        <div class="modal-content" style="max-width: min(1000px, 90vw); max-height: 85vh; overflow-y: hidden; display: flex; flex-direction: column;">
             <div class="modal-header">
                 <h3 class="modal-title">选择邮箱</h3>
                 <button class="modal-close" onclick="closeModal('emailSelectionModal')">&times;</button>
             </div>
-            <div class="modal-body" style="max-height: calc(85vh - 140px); overflow-y: hidden;">
-                <div style="display: flex; gap: 15px; height: 100%; min-height: 500px;">
+            <div class="modal-body" style="flex: 1; min-height: 0; overflow-y: hidden;">
+                <div style="display: flex; gap: 15px; height: 100%;">
                     <!-- 左侧分组列表 -->
-                    <div style="width: 200px; border-right: 1px solid #e5e7eb; overflow-y: auto; padding-right: 10px;">
-                        <div style="margin-bottom: 10px; font-weight: 600; color: #374151; padding: 8px;">邮箱分组</div>
-                        <div id="emailGroupsList">
+                    <div style="width: 200px; border-right: 1px solid #e5e7eb; overflow-y: auto; padding-right: 10px; display: flex; flex-direction: column;">
+                        <div style="margin-bottom: 10px; font-weight: 600; color: #374151; padding: 8px; flex-shrink: 0;">邮箱分组</div>
+                        <div id="emailGroupsList" style="flex: 1; overflow-y: auto; min-height: 0;">
                             <!-- 分组列表将通过JavaScript动态加载 -->
                         </div>
                     </div>
