@@ -2417,7 +2417,8 @@
                 allMailboxGroups = groupsData.groups || [];
                 allMailboxGroupMappings = groupsData.mappings || [];
                 
-                // 初始化所有分组为折叠状态
+                // 初始化所有分组为折叠状态（每次打开模态框时重置，确保一致的用户体验）
+                // Initialize all groups as collapsed (reset on each modal open for consistent UX)
                 collapsedGroupsInModal = {};
                 allMailboxGroups.forEach(group => {
                     collapsedGroupsInModal[group.id] = true;
