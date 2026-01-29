@@ -1259,6 +1259,7 @@
                                         <th>邮箱密码</th>
                                         <th>服务器（收/发）</th>
                                         <th>添加时间</th>
+                                        <th>备注</th>
                                         <th>操作</th>
                                     </tr>
                                 </thead>
@@ -1493,6 +1494,11 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="form-group">
+                    <label for="mailboxRemarks">备注</label>
+                    <textarea id="mailboxRemarks" name="remarks" rows="3" placeholder="填写备注"></textarea>
+                </div>
                 
             </form>
         </div>
@@ -1500,6 +1506,27 @@
             <button type="button" class="btn" onclick="closeModal()">取消</button>
             <button type="button" class="btn btn-success" onclick="testMailbox()" id="testBtn" style="display: none;">测试邮箱</button>
             <button type="button" class="btn btn-primary" onclick="saveMailbox()">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 邮箱备注模态框 -->
+<div id="remarkModal" class="modal">
+    <div class="modal-content" style="max-width: 520px;">
+        <div class="modal-header">
+            <h3 class="modal-title">邮箱备注</h3>
+            <button class="modal-close" onclick="closeRemarkModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="remarkMailboxId">
+            <div class="form-group">
+                <label for="remarkText">备注内容</label>
+                <textarea id="remarkText" rows="4" class="form-control" placeholder="填写备注"></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn" onclick="closeRemarkModal()">取消</button>
+            <button type="button" class="btn btn-primary" onclick="saveRemark()">保存</button>
         </div>
     </div>
 </div>
@@ -1855,12 +1882,12 @@
     }
     
     // 渲染邮箱表格
-    function renderMailboxTable(mailboxes) {
+function renderMailboxTable(mailboxes) {
         const tbody = document.querySelector('#mailboxTable tbody');
         tbody.innerHTML = '';
         
         if (mailboxes.length === 0) {
-            const colCount = document.querySelectorAll('#mailboxTable thead th').length || 8;
+            const colCount = document.querySelectorAll('#mailboxTable thead th').length || 9;
             tbody.innerHTML = `<tr><td colspan="${colCount}" style="text-align: center; color: #6b7280;">暂无邮箱账号</td></tr>`;
             return;
         }
@@ -1879,12 +1906,14 @@
                     <div>发：${escapeHtml(mailbox.send_server || mailbox.server || '')}</div>
                 </td>
                 <td>${formatDateTime(mailbox.created_at)}</td>
+                <td>${escapeHtml(mailbox.remarks || '-')}</td>
                 <td>
                     <div class="actions" style="display: flex; gap: 5px; flex-wrap: wrap;">
                         <button class="btn btn-success btn-small" onclick="editMailbox(${mailbox.id})">编辑</button>
                         <button class="btn btn-primary btn-small" onclick="openReceiveModal(${mailbox.id})">收件</button>
                         <button class="btn btn-primary btn-small" onclick="openSendModal(${mailbox.id})">发件</button>
                         <button class="btn btn-primary btn-small" onclick="testMailbox(${mailbox.id})">测试</button>
+                        <button class="btn btn-secondary btn-small" onclick="openRemarkModal(${mailbox.id})">备注</button>
                         <button class="btn btn-danger btn-small" onclick="deleteMailbox(${mailbox.id})">删除</button>
                     </div>
                 </td>
@@ -2615,6 +2644,53 @@
         renderReceiveView();
     }
 
+    // 备注弹窗
+    function openRemarkModal(mailboxId) {
+        const mailbox = mailboxData.find(m => m.id === mailboxId);
+        if (!mailbox) return;
+        document.getElementById('remarkMailboxId').value = mailboxId;
+        document.getElementById('remarkText').value = mailbox.remarks || '';
+        document.getElementById('remarkModal').classList.add('show');
+    }
+
+    function closeRemarkModal() {
+        document.getElementById('remarkModal').classList.remove('show');
+    }
+
+    async function saveRemark() {
+        const mailboxId = document.getElementById('remarkMailboxId').value;
+        const remarks = document.getElementById('remarkText').value || '';
+        
+        if (!mailboxId) return;
+        
+        try {
+            const response = await fetch('/admin/api/mailbox', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: 'edit',
+                    id: parseInt(mailboxId, 10),
+                    remarks: remarks,
+                    partial_update: true
+                })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                showToast('备注保存成功', 'success');
+                closeRemarkModal();
+                loadMailboxes(currentPage, searchQuery);
+            } else {
+                showToast(data.message || '保存失败', 'error');
+            }
+        } catch (error) {
+            console.error('保存备注失败:', error);
+            showToast('网络错误，请稍后重试', 'error');
+        }
+    }
+
     function closeReceiveModal() {
         document.getElementById('receiveModal').classList.remove('show');
         receiveState.activeMail = null;
@@ -2960,6 +3036,7 @@
         document.getElementById('sendProtocol').value = 'smtp';
         document.getElementById('sendPort').value = 465;
         document.getElementById('sendServer').value = '';
+        document.getElementById('mailboxRemarks').value = '';
         document.getElementById('testBtn').style.display = 'inline-block';
         document.getElementById('mailboxForm').dataset.originalEmail = '';
         loadServerOptions();
@@ -3028,6 +3105,7 @@
                     const currentGroupId = mailboxGroupMap[mailbox.id] ?? mailboxGroupMap[mailbox.email] ?? UNGROUPED_GROUP_ID;
                     refreshGroupSelects(currentGroupId, document.getElementById('batchGroupSelect')?.value || UNGROUPED_GROUP_ID);
                     document.getElementById('groupSelect').value = currentGroupId;
+                    document.getElementById('mailboxRemarks').value = mailbox.remarks || '';
                     loadServerOptions();
                     document.getElementById('mailboxModal').classList.add('show');
                 }
@@ -3228,7 +3306,8 @@
             send_port: parseInt(formData.get('send_port'), 10),
             send_protocol: formData.get('send_protocol'),
             send_ssl: formData.get('send_ssl') === 'on',
-            group_id: group_id
+            group_id: group_id,
+            remarks: formData.get('remarks') || formData.get('mailboxRemarks') || ''
         };
         const originalEmail = document.getElementById('mailboxForm').dataset.originalEmail || '';
         
@@ -3693,8 +3772,8 @@
             ssl_enabled: formData.get('ssl_enabled') === 'true',
             send_ssl_enabled: sendSslField === null ? (existingServer ? !!existingServer.send_ssl_enabled : true) : sendSslField === 'true',
             send_protocol: sendProtocolField || existingServer?.send_protocol || 'smtp',
-            remarks: formData.get('remarks')
-        };
+                remarks: formData.get('remarks') || formData.get('mailbox_remarks') || formData.get('mailboxRemarks') || ''
+            };
 
         if (!data.server_name || !data.server_address || !data.send_server_address) {
             showToast('请填写完整的服务器信息', 'error');

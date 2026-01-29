@@ -439,10 +439,62 @@
         color: #991b1b;
     }
     
-    .status-disabled {
-        background: #f3f4f6;
-        color: #6b7280;
-    }
+.status-disabled {
+    background: #f3f4f6;
+    color: #6b7280;
+}
+
+.picker-panel {
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.picker-title {
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.picker-group-item,
+.picker-email-item {
+    padding: 10px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: var(--transition);
+    border: 1px solid transparent;
+}
+
+.picker-group-item:hover,
+.picker-email-item:hover {
+    background: #eef2ff;
+    border-color: #c7d2fe;
+}
+
+.picker-group-item.active {
+    background: #e0e7ff;
+    border-color: #a5b4fc;
+    color: #1d4ed8;
+    font-weight: 600;
+}
+
+.picker-email-item .sub {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.input-with-button {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.input-with-button input {
+    flex: 1;
+}
     
     /* Pagination */
 .pagination-container {
@@ -1154,12 +1206,14 @@
                     </div>
                     
                     <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">绑定邮箱</label>
-                            <select class="form-control" name="bound_email_id" id="editBoundEmailId">
-                                <option value="">请选择邮箱账号</option>
-                            </select>
+                    <div class="form-group">
+                        <label class="form-label">绑定邮箱</label>
+                        <div class="input-with-button">
+                            <input type="text" class="form-control" id="editBoundEmailDisplay" readonly placeholder="点击选择邮箱">
+                            <button type="button" class="btn btn-primary btn-small" onclick="openEmailPicker()">选择</button>
                         </div>
+                        <input type="hidden" name="bound_email_id" id="editBoundEmailId">
+                    </div>
                         <div class="form-group">
                             <label class="form-label">收取X天内的邮件</label>
                             <input type="number" class="form-control" name="email_days_filter" id="editEmailDaysFilter" value="1" min="1" max="365">
@@ -1194,6 +1248,29 @@
                 <button type="button" class="btn btn-secondary" onclick="closeModal('editModal')">取消</button>
                 <button type="button" class="btn btn-success" onclick="generateCardAPI()">生成API</button>
                 <button type="button" class="btn btn-primary" onclick="saveEdit()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 邮箱选择弹窗 -->
+    <div id="emailPickerModal" class="modal">
+        <div class="modal-content" style="max-width: 720px; max-height: 80vh;">
+            <div class="modal-header">
+                <h3 class="modal-title">选择绑定邮箱</h3>
+                <button class="modal-close" onclick="closeModal('emailPickerModal')">&times;</button>
+            </div>
+            <div class="modal-body" style="display: grid; grid-template-columns: 220px 1fr; gap: 16px; overflow: hidden;">
+                <div class="picker-panel">
+                    <div class="picker-title">分组</div>
+                    <div class="email-tree" style="overflow-y: auto; max-height: 60vh;"></div>
+                </div>
+                <div class="picker-panel">
+                    <div class="picker-title">邮箱列表</div>
+                    <div class="email-list" style="overflow-y: auto; max-height: 60vh;"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn" onclick="closeModal('emailPickerModal')">关闭</button>
             </div>
         </div>
     </div>
@@ -1548,6 +1625,81 @@
             .catch(error => {
                 console.error('加载统计数据失败:', error);
             });
+    }
+
+    // 渲染邮箱选择弹窗中的分组树和邮箱列表
+    function renderEmailPickerTree() {
+        const modal = document.getElementById('emailPickerModal');
+        const treeContainer = modal.querySelector('.email-tree');
+        const listContainer = modal.querySelector('.email-list');
+        treeContainer.innerHTML = '';
+        listContainer.innerHTML = '';
+
+        // 构造分组树
+        const groups = window.mailboxGroups || [];
+        const groupMap = {};
+        groups.forEach(g => { groupMap[g.id] = g; });
+        const childrenMap = {};
+        groups.forEach(g => {
+            const pid = g.parent_id || 0;
+            childrenMap[pid] = childrenMap[pid] || [];
+            childrenMap[pid].push(g);
+        });
+
+        function renderGroupNode(group, depth = 0) {
+            const li = document.createElement('div');
+            li.className = 'picker-group-item';
+            li.style.paddingLeft = `${depth * 16}px`;
+            li.textContent = group.name;
+            li.onclick = () => renderEmailListForGroup(group.id);
+            treeContainer.appendChild(li);
+            (childrenMap[group.id] || []).forEach(child => renderGroupNode(child, depth + 1));
+        }
+
+        // 顶层“全部”节点
+        const allNode = document.createElement('div');
+        allNode.className = 'picker-group-item active';
+        allNode.textContent = '全部邮箱';
+        allNode.onclick = () => renderEmailListForGroup(null);
+        treeContainer.appendChild(allNode);
+
+        (childrenMap[0] || []).forEach(g => renderGroupNode(g, 1));
+
+        // 默认渲染全部
+        renderEmailListForGroup(null);
+
+        function renderEmailListForGroup(groupId) {
+            // 高亮选择
+            treeContainer.querySelectorAll('.picker-group-item').forEach(el => el.classList.remove('active'));
+            if (groupId === null) {
+                allNode.classList.add('active');
+            } else {
+                const target = Array.from(treeContainer.querySelectorAll('.picker-group-item')).find(el => el.textContent === groupMap[groupId]?.name);
+                if (target) target.classList.add('active');
+            }
+
+            listContainer.innerHTML = '';
+            const emails = (window.availableEmailCache || []).filter(email => {
+                const gid = window.mailboxGroupMap ? (window.mailboxGroupMap[email.id] ?? window.mailboxGroupMap[email.email]) : null;
+                if (!groupId) return true;
+                return gid === groupId || isDescendantGroup?.(gid, groupId);
+            });
+
+            emails.forEach(email => {
+                const item = document.createElement('div');
+                item.className = 'picker-email-item';
+                item.innerHTML = `<div>${email.email}</div><div class="sub">${email.server}</div>`;
+                item.onclick = () => {
+                    updateBoundEmailDisplay(email.id);
+                    closeModal('emailPickerModal');
+                };
+                listContainer.appendChild(item);
+            });
+
+            if (emails.length === 0) {
+                listContainer.innerHTML = '<div style="padding:12px;color:#6b7280;">该分组暂无可绑定邮箱</div>';
+            }
+        }
     }
 
     // 加载卡密列表
@@ -2130,11 +2282,12 @@
     
     // 更新邮箱选择器选项
     function updateEmailSelectOptions(emails) {
+        window.availableEmailCache = emails || [];
         // 更新绑定邮箱弹窗中的选择器
         const bindEmailSelect = document.getElementById('emailSelect');
         if (bindEmailSelect) {
             bindEmailSelect.innerHTML = '<option value="">请选择邮箱账号</option>';
-            emails.forEach(email => {
+            window.availableEmailCache.forEach(email => {
                 const option = document.createElement('option');
                 option.value = email.id;
                 option.textContent = `${email.email} (${email.server})`;
@@ -2142,22 +2295,27 @@
             });
         }
         
-        // 更新编辑弹窗中的选择器
-        const editEmailSelect = document.getElementById('editBoundEmailId');
-        if (editEmailSelect) {
-            const currentValue = editEmailSelect.value; // 保存当前值
-            editEmailSelect.innerHTML = '<option value="">请选择邮箱账号</option>';
-            emails.forEach(email => {
-                const option = document.createElement('option');
-                option.value = email.id;
-                option.textContent = `${email.email} (${email.server})`;
-                editEmailSelect.appendChild(option);
-            });
-            // 恢复当前值（如果还存在）
-            if (currentValue) {
-                editEmailSelect.value = currentValue;
-            }
+        // 更新编辑弹窗中的显示
+        const currentId = document.getElementById('editBoundEmailId').value;
+        updateBoundEmailDisplay(currentId);
+    }
+
+    function updateBoundEmailDisplay(emailId) {
+        const displayInput = document.getElementById('editBoundEmailDisplay');
+        const hiddenInput = document.getElementById('editBoundEmailId');
+        hiddenInput.value = emailId || '';
+        if (!emailId) {
+            displayInput.value = '';
+            return;
         }
+        const matched = (window.availableEmailCache || []).find(e => String(e.id) === String(emailId));
+        displayInput.value = matched ? `${matched.email} (${matched.server})` : `ID: ${emailId}`;
+    }
+
+    // 打开邮箱选择弹窗
+    function openEmailPicker() {
+        renderEmailPickerTree();
+        document.getElementById('emailPickerModal').classList.add('show');
     }
 
     // 显示编辑卡密弹窗
@@ -2175,6 +2333,7 @@
         document.getElementById('editExpiredAt').value = card.expired_at || '';
         document.getElementById('editRemarks').value = getCardRemarks(card.remarks) || '';
         document.getElementById('editBoundEmailId').value = card.bound_email_id || '';
+        updateBoundEmailDisplay(card.bound_email_id || '');
         document.getElementById('editEmailDaysFilter').value = card.email_days_filter || 1;
         document.getElementById('editKeywordFilter').value = card.keyword_filter || '';
         
