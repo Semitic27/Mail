@@ -874,6 +874,106 @@
     .mobile-overlay.show {
         display: block;
     }
+    
+    /* 邮箱选择模态框样式 */
+    .email-group-container {
+        margin-bottom: 20px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    
+    .email-group-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 12px 15px;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        transition: all 0.3s ease;
+    }
+    
+    .email-group-header:hover {
+        background: linear-gradient(135deg, #5568d3 0%, #65398b 100%);
+    }
+    
+    .email-group-toggle {
+        font-size: 16px;
+        transition: transform 0.3s ease;
+    }
+    
+    .email-group-toggle.collapsed {
+        transform: rotate(-90deg);
+    }
+    
+    .email-group-list {
+        background: white;
+    }
+    
+    .email-item {
+        padding: 10px 15px;
+        border-bottom: 1px solid #f3f4f6;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .email-item:hover {
+        background: #f9fafb;
+    }
+    
+    .email-item:last-child {
+        border-bottom: none;
+    }
+    
+    .email-item-info {
+        flex: 1;
+    }
+    
+    .email-item-address {
+        font-weight: 500;
+        color: #111827;
+        margin-bottom: 2px;
+    }
+    
+    .email-item-server {
+        font-size: 12px;
+        color: #6b7280;
+    }
+    
+    .email-item-select-btn {
+        padding: 5px 15px;
+        background: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-size: 13px;
+    }
+    
+    .email-item-select-btn:hover {
+        background: var(--secondary-color);
+    }
+    
+    .subgroup {
+        margin-left: 20px;
+        border-left: 3px solid #e5e7eb;
+    }
+    
+    .subgroup .email-group-header {
+        background: linear-gradient(135deg, #a78bfa 0%, #c084fc 100%);
+        font-size: 14px;
+        padding: 10px 15px;
+    }
+    
+    .subgroup .email-group-header:hover {
+        background: linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%);
+    }
 </style>
 {% endblock %}
 
@@ -1156,9 +1256,12 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label class="form-label">绑定邮箱</label>
-                            <select class="form-control" name="bound_email_id" id="editBoundEmailId">
-                                <option value="">请选择邮箱账号</option>
-                            </select>
+                            <input type="hidden" name="bound_email_id" id="editBoundEmailId">
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <input type="text" class="form-control" id="editBoundEmailDisplay" readonly placeholder="点击选择按钮选择邮箱" style="flex: 1; cursor: pointer;" onclick="openEmailSelectionModal()">
+                                <button type="button" class="btn btn-primary" onclick="openEmailSelectionModal()" style="white-space: nowrap;">选择邮箱</button>
+                                <button type="button" class="btn btn-secondary" onclick="clearEmailSelection()" style="white-space: nowrap;">清除</button>
+                            </div>
                         </div>
                         <div class="form-group">
                             <label class="form-label">收取X天内的邮件</label>
@@ -1194,6 +1297,27 @@
                 <button type="button" class="btn btn-secondary" onclick="closeModal('editModal')">取消</button>
                 <button type="button" class="btn btn-success" onclick="generateCardAPI()">生成API</button>
                 <button type="button" class="btn btn-primary" onclick="saveEdit()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 邮箱选择模态框 -->
+    <div id="emailSelectionModal" class="modal">
+        <div class="modal-content" style="max-width: 1000px; max-height: 85vh;">
+            <div class="modal-header">
+                <h3 class="modal-title">选择邮箱</h3>
+                <button class="modal-close" onclick="closeModal('emailSelectionModal')">&times;</button>
+            </div>
+            <div class="modal-body" style="max-height: calc(85vh - 140px); overflow-y: auto;">
+                <div style="margin-bottom: 15px;">
+                    <input type="text" id="emailSearchInput" class="form-control" placeholder="搜索邮箱地址..." oninput="filterEmailsInModal()">
+                </div>
+                <div id="emailGroupsContainer">
+                    <!-- 邮箱分组和邮箱列表将通过JavaScript动态加载 -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('emailSelectionModal')">取消</button>
             </div>
         </div>
     </div>
@@ -2159,6 +2283,185 @@
             }
         }
     }
+    
+    // 全局变量用于存储邮箱和分组数据
+    let allMailboxes = [];
+    let allMailboxGroups = [];
+    let allMailboxGroupMappings = [];
+
+    // 打开邮箱选择模态框
+    async function openEmailSelectionModal() {
+        try {
+            // 加载邮箱列表和分组
+            const [mailboxResponse, groupsResponse] = await Promise.all([
+                fetch('/admin/api/mailbox?per_page=1000'),
+                fetch('/admin/api/mailbox-groups')
+            ]);
+            
+            const mailboxData = await mailboxResponse.json();
+            const groupsData = await groupsResponse.json();
+            
+            if (mailboxData.success && groupsData.success) {
+                allMailboxes = mailboxData.data;
+                allMailboxGroups = groupsData.groups || [];
+                allMailboxGroupMappings = groupsData.mappings || [];
+                
+                renderEmailGroups();
+                document.getElementById('emailSelectionModal').classList.add('show');
+            } else {
+                showToast('加载邮箱数据失败', 'error');
+            }
+        } catch (error) {
+            console.error('加载邮箱数据失败:', error);
+            showToast('加载邮箱数据失败', 'error');
+        }
+    }
+    
+    // 渲染邮箱分组和邮箱列表
+    function renderEmailGroups() {
+        const container = document.getElementById('emailGroupsContainer');
+        container.innerHTML = '';
+        
+        // 创建分组ID到邮箱的映射
+        const groupMailboxMap = new Map();
+        allMailboxGroupMappings.forEach(mapping => {
+            const groupId = mapping.group_id;
+            if (!groupMailboxMap.has(groupId)) {
+                groupMailboxMap.set(groupId, []);
+            }
+            const mailbox = allMailboxes.find(m => m.id === mapping.mailbox_id);
+            if (mailbox) {
+                groupMailboxMap.get(groupId).push(mailbox);
+            }
+        });
+        
+        // 获取未分组的邮箱
+        const groupedMailboxIds = new Set(allMailboxGroupMappings.map(m => m.mailbox_id));
+        const ungroupedMailboxes = allMailboxes.filter(m => !groupedMailboxIds.has(m.id));
+        
+        // 渲染根级分组
+        const rootGroups = allMailboxGroups.filter(g => !g.parent_id || g.parent_id === null);
+        rootGroups.forEach(group => {
+            renderGroup(container, group, groupMailboxMap, 0);
+        });
+        
+        // 渲染未分组的邮箱
+        if (ungroupedMailboxes.length > 0) {
+            const ungroupedContainer = document.createElement('div');
+            ungroupedContainer.className = 'email-group-container';
+            ungroupedContainer.innerHTML = `
+                <div class="email-group-header" onclick="toggleEmailGroup(this)">
+                    <span>📧 未分组邮箱 (${ungroupedMailboxes.length})</span>
+                    <span class="email-group-toggle">▼</span>
+                </div>
+                <div class="email-group-list">
+                    ${ungroupedMailboxes.map(mailbox => renderMailboxItem(mailbox)).join('')}
+                </div>
+            `;
+            container.appendChild(ungroupedContainer);
+        }
+    }
+    
+    // 递归渲染分组及其子分组
+    function renderGroup(container, group, groupMailboxMap, level) {
+        const mailboxes = groupMailboxMap.get(group.id) || [];
+        const subGroups = allMailboxGroups.filter(g => g.parent_id === group.id);
+        
+        const groupDiv = document.createElement('div');
+        groupDiv.className = level > 0 ? 'email-group-container subgroup' : 'email-group-container';
+        
+        const totalMailboxes = mailboxes.length + subGroups.reduce((sum, sg) => {
+            const sgMailboxes = groupMailboxMap.get(sg.id) || [];
+            return sum + sgMailboxes.length;
+        }, 0);
+        
+        groupDiv.innerHTML = `
+            <div class="email-group-header" onclick="toggleEmailGroup(this)">
+                <span>${group.name} (${totalMailboxes})</span>
+                <span class="email-group-toggle">▼</span>
+            </div>
+            <div class="email-group-list">
+                ${mailboxes.map(mailbox => renderMailboxItem(mailbox)).join('')}
+            </div>
+        `;
+        
+        container.appendChild(groupDiv);
+        
+        // 渲染子分组
+        if (subGroups.length > 0) {
+            const listDiv = groupDiv.querySelector('.email-group-list');
+            subGroups.forEach(subGroup => {
+                renderGroup(listDiv, subGroup, groupMailboxMap, level + 1);
+            });
+        }
+    }
+    
+    // 渲染邮箱项
+    function renderMailboxItem(mailbox) {
+        return `
+            <div class="email-item" data-email="${escapeHtml(mailbox.email)}" data-id="${mailbox.id}">
+                <div class="email-item-info">
+                    <div class="email-item-address">${escapeHtml(mailbox.email)}</div>
+                    <div class="email-item-server">服务器: ${escapeHtml(mailbox.server)}</div>
+                </div>
+                <button class="email-item-select-btn" onclick="selectEmail(${mailbox.id}, '${escapeHtml(mailbox.email)}')">选择</button>
+            </div>
+        `;
+    }
+    
+    // 切换分组展开/折叠
+    function toggleEmailGroup(header) {
+        const listDiv = header.nextElementSibling;
+        const toggle = header.querySelector('.email-group-toggle');
+        
+        if (listDiv.style.display === 'none') {
+            listDiv.style.display = 'block';
+            toggle.classList.remove('collapsed');
+            toggle.textContent = '▼';
+        } else {
+            listDiv.style.display = 'none';
+            toggle.classList.add('collapsed');
+            toggle.textContent = '▶';
+        }
+    }
+    
+    // 选择邮箱
+    function selectEmail(mailboxId, emailAddress) {
+        document.getElementById('editBoundEmailId').value = mailboxId;
+        document.getElementById('editBoundEmailDisplay').value = emailAddress;
+        closeModal('emailSelectionModal');
+        showToast('邮箱已选择', 'success');
+    }
+    
+    // 清除邮箱选择
+    function clearEmailSelection() {
+        document.getElementById('editBoundEmailId').value = '';
+        document.getElementById('editBoundEmailDisplay').value = '';
+        showToast('已清除邮箱选择', 'success');
+    }
+    
+    // 过滤邮箱
+    function filterEmailsInModal() {
+        const searchTerm = document.getElementById('emailSearchInput').value.toLowerCase();
+        const emailItems = document.querySelectorAll('.email-item');
+        
+        emailItems.forEach(item => {
+            const email = item.getAttribute('data-email').toLowerCase();
+            if (email.includes(searchTerm)) {
+                item.style.display = 'flex';
+            } else {
+                item.style.display = 'none';
+            }
+        });
+    }
+    
+    // HTML转义函数
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
 
     // 显示编辑卡密弹窗
     function showEditModal(cardId) {
@@ -2175,6 +2478,7 @@
         document.getElementById('editExpiredAt').value = card.expired_at || '';
         document.getElementById('editRemarks').value = getCardRemarks(card.remarks) || '';
         document.getElementById('editBoundEmailId').value = card.bound_email_id || '';
+        document.getElementById('editBoundEmailDisplay').value = card.bound_email || '';
         document.getElementById('editEmailDaysFilter').value = card.email_days_filter || 1;
         document.getElementById('editKeywordFilter').value = card.keyword_filter || '';
         
