@@ -1442,7 +1442,7 @@
 
     <!-- 邮箱选择模态框 -->
     <div id="emailSelectionModal" class="modal">
-        <div class="modal-content" style="max-width: 1000px; max-height: 85vh;">
+        <div class="modal-content" style="max-width: min(1000px, 90vw); max-height: 85vh;">
             <div class="modal-header">
                 <h3 class="modal-title">选择邮箱</h3>
                 <button class="modal-close" onclick="closeModal('emailSelectionModal')">&times;</button>
@@ -1462,7 +1462,7 @@
                             <input type="text" id="emailSearchInput" class="form-control" placeholder="搜索邮箱地址..." oninput="filterEmailsInModal()" style="flex: 1;">
                             <button type="button" class="btn btn-danger" onclick="clearEmailSearch()" style="white-space: nowrap;">清除</button>
                         </div>
-                        <div id="emailListContainer" style="flex: 1; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px; min-height: 0; max-height: 450px;">
+                        <div id="emailListContainer" style="flex: 1; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px; min-height: 0;">
                             <!-- 邮箱列表将通过JavaScript动态加载 -->
                         </div>
                     </div>
