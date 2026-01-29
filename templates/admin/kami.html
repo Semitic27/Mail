@@ -1037,7 +1037,7 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        gap: 10px;
+        gap: 12px;
     }
     
     .email-list-item:hover {
@@ -1048,18 +1048,33 @@
         border-bottom: none;
     }
     
+    .email-list-item-info {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    
     .email-list-item-address {
         font-weight: 500;
         color: #111827;
-        flex: 1;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        min-width: 0;
+        font-size: 14px;
+    }
+    
+    .email-list-item-remark {
+        font-size: 12px;
+        color: #6b7280;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
     
     .email-list-item-select-btn {
-        padding: 6px 18px;
+        padding: 6px 16px;
         background: var(--primary-color);
         color: white;
         border: none;
@@ -1069,6 +1084,7 @@
         font-size: 13px;
         font-weight: 500;
         flex-shrink: 0;
+        white-space: nowrap;
     }
     
     .email-list-item-select-btn:hover {
@@ -1402,7 +1418,7 @@
 
     <!-- 邮箱选择模态框 -->
     <div id="emailSelectionModal" class="modal">
-        <div class="modal-content" style="max-width: 900px; max-height: 85vh;">
+        <div class="modal-content" style="max-width: 700px; max-height: 85vh;">
             <div class="modal-header">
                 <h3 class="modal-title">选择邮箱</h3>
                 <button class="modal-close" onclick="closeModal('emailSelectionModal')">&times;</button>
@@ -2589,7 +2605,7 @@
         renderEmailList(mailboxes);
     }
     
-    // 渲染邮箱列表（不显示服务器信息）
+    // 渲染邮箱列表（显示邮箱账号、备注、选择按钮）
     function renderEmailList(mailboxes) {
         const container = document.getElementById('emailListContainer');
         if (!container) return;
@@ -2607,10 +2623,25 @@
             item.dataset.email = mailbox.email;
             item.dataset.id = mailbox.id;
             
+            // 创建邮箱信息容器
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'email-list-item-info';
+            
+            // 邮箱地址
             const addressDiv = document.createElement('div');
             addressDiv.className = 'email-list-item-address';
             addressDiv.textContent = mailbox.email;
+            infoDiv.appendChild(addressDiv);
             
+            // 备注（如果存在）
+            if (mailbox.remarks && mailbox.remarks.trim()) {
+                const remarkDiv = document.createElement('div');
+                remarkDiv.className = 'email-list-item-remark';
+                remarkDiv.textContent = `备注：${mailbox.remarks}`;
+                infoDiv.appendChild(remarkDiv);
+            }
+            
+            // 选择按钮
             const selectBtn = document.createElement('button');
             selectBtn.className = 'email-list-item-select-btn';
             selectBtn.textContent = '选择';
@@ -2620,7 +2651,7 @@
                 selectEmail(parseInt(this.dataset.mailboxId), this.dataset.mailboxEmail);
             };
             
-            item.appendChild(addressDiv);
+            item.appendChild(infoDiv);
             item.appendChild(selectBtn);
             container.appendChild(item);
         });
