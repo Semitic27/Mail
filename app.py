@@ -2377,6 +2377,35 @@ def api_admin_mailbox():
     db_type = app.config['DATABASE_TYPE']
     
     if request.method == 'GET':
+        # 检查是否请求单个邮箱
+        mailbox_id = request.args.get('id', '').strip()
+        if mailbox_id:
+            # 获取单个邮箱详情
+            try:
+                mailbox_id_int = int(mailbox_id)
+                if db_type == 'sqlite':
+                    account = db.execute('SELECT * FROM mail_accounts WHERE id = ?', (mailbox_id_int,)).fetchone()
+                else:
+                    cursor = db.cursor()
+                    cursor.execute('SELECT * FROM mail_accounts WHERE id = %s', (mailbox_id_int,))
+                    account = cursor.fetchone()
+                
+                if account:
+                    return jsonify({
+                        'success': True,
+                        'data': dict(account)
+                    })
+                else:
+                    return jsonify({
+                        'success': False,
+                        'message': '邮箱不存在'
+                    }), 404
+            except ValueError:
+                return jsonify({
+                    'success': False,
+                    'message': '无效的邮箱ID'
+                }), 400
+        
         # 获取邮箱列表（支持分页和搜索）
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 30))

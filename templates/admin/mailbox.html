@@ -3083,34 +3083,34 @@
     // 编辑邮箱
     async function editMailbox(id) {
         try {
-            const response = await fetch('/admin/api/mailbox');
+            const response = await fetch(`/admin/api/mailbox?id=${id}`);
             const data = await response.json();
             
             if (data.success) {
-                const mailbox = data.data.find(m => m.id === id);
-                if (mailbox) {
-                    document.getElementById('modalTitle').textContent = '编辑邮箱';
-                    document.getElementById('formAction').value = 'edit';
-                    document.getElementById('mailboxId').value = mailbox.id;
-                    document.getElementById('email').value = mailbox.email;
-                    document.getElementById('password').value = mailbox.password;
-                    document.getElementById('server').value = mailbox.server;
-                    document.getElementById('port').value = mailbox.port;
-                    document.getElementById('protocol').value = mailbox.protocol;
-                    document.getElementById('ssl').checked = mailbox.ssl;
-                    document.getElementById('sendServer').value = mailbox.send_server || mailbox.server;
-                    document.getElementById('sendPort').value = mailbox.send_port || mailbox.port;
-                    document.getElementById('sendProtocol').value = mailbox.send_protocol || 'smtp';
-                    document.getElementById('sendSsl').checked = mailbox.send_ssl !== undefined ? mailbox.send_ssl : mailbox.ssl;
-                    document.getElementById('remarks').value = mailbox.remarks || '';
-                    document.getElementById('testBtn').style.display = 'inline-block';
-                    document.getElementById('mailboxForm').dataset.originalEmail = mailbox.email || '';
-                    const currentGroupId = mailboxGroupMap[mailbox.id] ?? mailboxGroupMap[mailbox.email] ?? UNGROUPED_GROUP_ID;
-                    refreshGroupSelects(currentGroupId, document.getElementById('batchGroupSelect')?.value || UNGROUPED_GROUP_ID);
-                    document.getElementById('groupSelect').value = currentGroupId;
-                    loadServerOptions();
-                    document.getElementById('mailboxModal').classList.add('show');
-                }
+                const mailbox = data.data;
+                document.getElementById('modalTitle').textContent = '编辑邮箱';
+                document.getElementById('formAction').value = 'edit';
+                document.getElementById('mailboxId').value = mailbox.id;
+                document.getElementById('email').value = mailbox.email;
+                document.getElementById('password').value = mailbox.password;
+                document.getElementById('server').value = mailbox.server;
+                document.getElementById('port').value = mailbox.port;
+                document.getElementById('protocol').value = mailbox.protocol;
+                document.getElementById('ssl').checked = mailbox.ssl;
+                document.getElementById('sendServer').value = mailbox.send_server || mailbox.server;
+                document.getElementById('sendPort').value = mailbox.send_port || mailbox.port;
+                document.getElementById('sendProtocol').value = mailbox.send_protocol || 'smtp';
+                document.getElementById('sendSsl').checked = mailbox.send_ssl !== undefined ? mailbox.send_ssl : mailbox.ssl;
+                document.getElementById('remarks').value = mailbox.remarks || '';
+                document.getElementById('testBtn').style.display = 'inline-block';
+                document.getElementById('mailboxForm').dataset.originalEmail = mailbox.email || '';
+                const currentGroupId = mailboxGroupMap[mailbox.id] ?? mailboxGroupMap[mailbox.email] ?? UNGROUPED_GROUP_ID;
+                refreshGroupSelects(currentGroupId, document.getElementById('batchGroupSelect')?.value || UNGROUPED_GROUP_ID);
+                document.getElementById('groupSelect').value = currentGroupId;
+                loadServerOptions();
+                document.getElementById('mailboxModal').classList.add('show');
+            } else {
+                showToast(data.message || '获取邮箱信息失败', 'error');
             }
         } catch (error) {
             console.error('获取邮箱信息失败:', error);
@@ -3937,16 +3937,16 @@
     // 备注模态框
     async function editMailboxRemarks(id) {
         try {
-            const response = await fetch('/admin/api/mailbox');
+            const response = await fetch(`/admin/api/mailbox?id=${id}`);
             const data = await response.json();
             
             if (data.success) {
-                const mailbox = data.data.find(m => m.id === id);
-                if (mailbox) {
-                    document.getElementById('remarksMailboxId').value = mailbox.id;
-                    document.getElementById('remarksText').value = mailbox.remarks || '';
-                    document.getElementById('remarksModal').classList.add('show');
-                }
+                const mailbox = data.data;
+                document.getElementById('remarksMailboxId').value = mailbox.id;
+                document.getElementById('remarksText').value = mailbox.remarks || '';
+                document.getElementById('remarksModal').classList.add('show');
+            } else {
+                showToast(data.message || '获取邮箱信息失败', 'error');
             }
         } catch (error) {
             console.error('获取邮箱信息失败:', error);
