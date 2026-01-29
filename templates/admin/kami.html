@@ -2360,6 +2360,15 @@
             `;
             container.appendChild(ungroupedContainer);
         }
+        
+        // 添加事件委托处理邮箱选择按钮点击
+        container.addEventListener('click', function(e) {
+            if (e.target.classList.contains('email-item-select-btn')) {
+                const mailboxId = e.target.getAttribute('data-mailbox-id');
+                const mailboxEmail = e.target.getAttribute('data-mailbox-email');
+                selectEmail(parseInt(mailboxId), mailboxEmail);
+            }
+        });
     }
     
     // 递归渲染分组及其子分组
@@ -2370,14 +2379,19 @@
         const groupDiv = document.createElement('div');
         groupDiv.className = level > 0 ? 'email-group-container subgroup' : 'email-group-container';
         
-        const totalMailboxes = mailboxes.length + subGroups.reduce((sum, sg) => {
-            const sgMailboxes = groupMailboxMap.get(sg.id) || [];
-            return sum + sgMailboxes.length;
-        }, 0);
+        // Recursively calculate total mailboxes including nested subgroups
+        function countTotalMailboxes(groupId) {
+            const directMailboxes = groupMailboxMap.get(groupId) || [];
+            const children = allMailboxGroups.filter(g => g.parent_id === groupId);
+            const childrenCount = children.reduce((sum, child) => sum + countTotalMailboxes(child.id), 0);
+            return directMailboxes.length + childrenCount;
+        }
+        
+        const totalMailboxes = countTotalMailboxes(group.id);
         
         groupDiv.innerHTML = `
             <div class="email-group-header" onclick="toggleEmailGroup(this)">
-                <span>${group.name} (${totalMailboxes})</span>
+                <span>${escapeHtml(group.name)} (${totalMailboxes})</span>
                 <span class="email-group-toggle">▼</span>
             </div>
             <div class="email-group-list">
@@ -2399,12 +2413,12 @@
     // 渲染邮箱项
     function renderMailboxItem(mailbox) {
         return `
-            <div class="email-item" data-email="${escapeHtml(mailbox.email)}" data-id="${mailbox.id}">
+            <div class="email-item" data-email="${escapeHtml(mailbox.email)}" data-id="${mailbox.id}" data-server="${escapeHtml(mailbox.server || '')}">
                 <div class="email-item-info">
                     <div class="email-item-address">${escapeHtml(mailbox.email)}</div>
-                    <div class="email-item-server">服务器: ${escapeHtml(mailbox.server)}</div>
+                    <div class="email-item-server">服务器: ${escapeHtml(mailbox.server || 'N/A')}</div>
                 </div>
-                <button class="email-item-select-btn" onclick="selectEmail(${mailbox.id}, '${escapeHtml(mailbox.email)}')">选择</button>
+                <button class="email-item-select-btn" data-mailbox-id="${mailbox.id}" data-mailbox-email="${escapeHtml(mailbox.email)}">选择</button>
             </div>
         `;
     }

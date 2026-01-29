@@ -966,13 +966,14 @@ def migrate_cards_table(db, db_type):
         logger.error(f"Error during cards table migration: {e}")
 
 def migrate_mail_accounts_table(db, db_type):
-    """迁移mail_accounts表，添加发件服务器相关字段"""
+    """迁移mail_accounts表，添加发件服务器相关字段和remarks字段"""
     try:
         new_columns = [
             ('send_server', "TEXT DEFAULT ''", "VARCHAR(255) DEFAULT ''"),
             ('send_port', 'INTEGER DEFAULT 465', 'INT DEFAULT 465'),
             ('send_protocol', "TEXT DEFAULT 'smtp'", "VARCHAR(50) DEFAULT 'smtp'"),
-            ('send_ssl', 'INTEGER DEFAULT 1', 'TINYINT DEFAULT 1')
+            ('send_ssl', 'INTEGER DEFAULT 1', 'TINYINT DEFAULT 1'),
+            ('remarks', "TEXT DEFAULT ''", "TEXT DEFAULT ''")
         ]
         
         for column_name, sqlite_def, other_def in new_columns:
