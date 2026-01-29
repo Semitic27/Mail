@@ -1017,42 +1017,30 @@ def migrate_remove_email_unique_constraint(db, db_type):
                 logger.info("Removing UNIQUE constraint on email field from mail_accounts table")
                 
                 # SQLite doesn't support dropping constraints directly, need to recreate table
+                # Get column information dynamically
+                column_info = db.execute("PRAGMA table_info(mail_accounts)").fetchall()
+                columns = [col[1] for col in column_info]  # col[1] is the column name
+                columns_str = ', '.join(columns)
+                placeholders = ', '.join(['?' for _ in columns])
+                
                 # Get all data first
                 accounts = db.execute('SELECT * FROM mail_accounts').fetchall()
                 
+                # Get the original schema and remove UNIQUE constraint from email
+                original_schema = result[0]
+                # Simple approach: replace "email TEXT NOT NULL UNIQUE" with "email TEXT NOT NULL"
+                new_schema = original_schema.replace('email TEXT NOT NULL UNIQUE', 'email TEXT NOT NULL')
+                new_schema = new_schema.replace('mail_accounts', 'mail_accounts_backup')
+                
                 # Drop and recreate the table without UNIQUE constraint
                 db.execute('DROP TABLE IF EXISTS mail_accounts_backup')
-                db.execute('''
-                    CREATE TABLE mail_accounts_backup (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        email TEXT NOT NULL,
-                        username TEXT NOT NULL,
-                        password TEXT NOT NULL,
-                        server TEXT NOT NULL,
-                        port INTEGER NOT NULL,
-                        protocol TEXT NOT NULL DEFAULT 'imap',
-                        ssl INTEGER NOT NULL DEFAULT 1,
-                        send_server TEXT DEFAULT '',
-                        send_port INTEGER DEFAULT 465,
-                        send_protocol TEXT DEFAULT 'smtp',
-                        send_ssl INTEGER NOT NULL DEFAULT 1,
-                        remarks TEXT DEFAULT '',
-                        status INTEGER DEFAULT 1,
-                        last_test DATETIME DEFAULT NULL,
-                        test_result TEXT DEFAULT '',
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    )
-                ''')
+                db.execute(new_schema)
                 
-                # Copy data to backup table
+                # Copy data to backup table dynamically
                 if accounts:
                     for account in accounts:
-                        db.execute('''
-                            INSERT INTO mail_accounts_backup 
-                            (id, email, username, password, server, port, protocol, ssl, send_server, send_port, send_protocol, send_ssl, remarks, status, last_test, test_result, created_at, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ''', tuple(account))
+                        insert_sql = f'INSERT INTO mail_accounts_backup ({columns_str}) VALUES ({placeholders})'
+                        db.execute(insert_sql, tuple(account))
                 
                 # Drop old table and rename backup
                 db.execute('DROP TABLE mail_accounts')
@@ -2705,7 +2693,8 @@ def _add_mailbox(db, data):
             except (ValueError, TypeError):
                 pass
         else:
-            # 如果未指定分组，收集所有存在的分组信息
+            # 如果未指定分组，收集所有存在的分组信息，并检查是否已在未分组中存在
+            has_no_group = False
             for account in existing_accounts:
                 account_dict = dict(account) if db_type == 'sqlite' else {
                     'id': account[0],
@@ -2714,6 +2703,19 @@ def _add_mailbox(db, data):
                 }
                 if account_dict.get('group_name'):
                     existing_groups.append(account_dict['group_name'])
+                else:
+                    # 邮箱存在但没有分组
+                    has_no_group = True
+            
+            # 如果在未分组中已存在，阻止添加
+            if has_no_group:
+                return jsonify({
+                    'success': False,
+                    'message': '邮箱已存在于未分组中'
+                })
+        
+        # 去重分组列表
+        existing_groups = list(dict.fromkeys(existing_groups))  # 保持顺序的去重
         
         # 插入新邮箱
         now = get_beijing_time()
@@ -2862,7 +2864,7 @@ def _batch_add_mailbox(db, data):
                 except (ValueError, TypeError):
                     pass
             else:
-                # 如果未指定分组，收集所有存在的分组信息
+                # 如果未指定分组，收集所有存在的分组信息，并检查是否已在未分组中存在
                 for account in existing_accounts:
                     account_dict = dict(account) if db_type == 'sqlite' else {
                         'id': account[0],
@@ -2871,6 +2873,12 @@ def _batch_add_mailbox(db, data):
                     }
                     if account_dict.get('group_name'):
                         existing_groups.append(account_dict['group_name'])
+                    elif not account_dict.get('group_id'):
+                        # 邮箱已在未分组中存在
+                        existing_in_group = True
+            
+            # 去重分组列表
+            existing_groups = list(dict.fromkeys(existing_groups))  # 保持顺序的去重
             
             # 如果在当前分组中已存在，跳过
             if existing_in_group:
