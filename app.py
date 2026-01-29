@@ -1346,6 +1346,20 @@ def get_next_unified_proxy_id(db, proxy_type, proxy_table_id):
                 INSERT INTO unified_proxy_ids (id, proxy_type, proxy_table_id)
                 VALUES (?, ?, ?)
             ''', (next_id, proxy_type, proxy_table_id))
+            
+            # 更新SQLite的AUTOINCREMENT序列，确保下次自动分配的ID不会冲突
+            # 获取当前表中的最大ID
+            max_id_result = db.execute('SELECT MAX(id) as max_id FROM unified_proxy_ids').fetchone()
+            max_id = max_id_result['max_id'] if max_id_result['max_id'] else 0
+            # 更新sqlite_sequence表以确保AUTOINCREMENT从正确的值开始
+            db.execute('''
+                UPDATE sqlite_sequence SET seq = ? WHERE name = 'unified_proxy_ids'
+            ''', (max_id,))
+            # 如果表不在sqlite_sequence中（首次插入），则插入它
+            db.execute('''
+                INSERT OR IGNORE INTO sqlite_sequence (name, seq) VALUES ('unified_proxy_ids', ?)
+            ''', (max_id,))
+            
             unified_id = next_id
         else:
             cursor = db.cursor()
@@ -1366,6 +1380,25 @@ def get_next_unified_proxy_id(db, proxy_type, proxy_table_id):
                 INSERT INTO unified_proxy_ids (id, proxy_type, proxy_table_id)
                 VALUES (%s, %s, %s)
             ''', (next_id, proxy_type, proxy_table_id))
+            
+            # 对于MySQL/PostgreSQL，需要更新序列
+            if db_type == 'mysql':
+                # MySQL使用AUTO_INCREMENT，需要确保下一个值正确
+                max_id_cursor = db.cursor()
+                max_id_cursor.execute('SELECT MAX(id) as max_id FROM unified_proxy_ids')
+                max_id_result = max_id_cursor.fetchone()
+                max_id = max_id_result[0] if max_id_result[0] else 0
+                # MySQL: 设置下一个AUTO_INCREMENT值
+                cursor.execute(f'ALTER TABLE unified_proxy_ids AUTO_INCREMENT = {max_id + 1}')
+            elif db_type == 'postgresql':
+                # PostgreSQL使用序列
+                max_id_cursor = db.cursor()
+                max_id_cursor.execute('SELECT MAX(id) as max_id FROM unified_proxy_ids')
+                max_id_result = max_id_cursor.fetchone()
+                max_id = max_id_result[0] if max_id_result[0] else 0
+                # 更新序列的当前值
+                cursor.execute(f"SELECT setval('unified_proxy_ids_id_seq', {max_id}, true)")
+            
             unified_id = next_id
         
         return unified_id
