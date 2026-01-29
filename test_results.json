@@ -1,0 +1,71 @@
+{
+  "test_date": "2026-01-29 09:27:24",
+  "statistics": {
+    "main_groups": 20,
+    "sub_groups": 400,
+    "total_mailboxes": 120000,
+    "total_cards": 500
+  },
+  "performance_metrics": {
+    "group_creation": 0.0054683685302734375,
+    "mailbox_creation": 1.5652103424072266,
+    "card_creation": 0.006737947463989258,
+    "load_all_groups": 0.0017399787902832031,
+    "load_mailbox_first_page": 0.00010704994201660156,
+    "load_mailbox_last_page": 9.5367431640625e-05,
+    "load_cards_first_page": 8.7738037109375e-05,
+    "complex_join_query": 9.989738464355469e-05,
+    "database_size_mb": 60.19921875,
+    "indexed_search": 4.601478576660156e-05
+  },
+  "test_results": [
+    {
+      "test": "编辑邮箱备注",
+      "count": 10,
+      "success": 10,
+      "time": 0.0014960765838623047
+    },
+    {
+      "test": "删除邮箱",
+      "count": 5,
+      "success": 5,
+      "time": 0.0008714199066162109
+    },
+    {
+      "test": "查询邮箱总数",
+      "count": 119995,
+      "success": 1,
+      "time": 0.0005109310150146484
+    },
+    {
+      "test": "分页查询（最后一页）",
+      "count": 50,
+      "success": 1,
+      "time": 8.177757263183594e-05
+    },
+    {
+      "test": "编辑卡密备注",
+      "count": 20,
+      "success": 20,
+      "time": 0.001825571060180664
+    },
+    {
+      "test": "绑定邮箱到卡密",
+      "count": 30,
+      "success": 30,
+      "time": 0.0006434917449951172
+    },
+    {
+      "test": "查询卡密总数",
+      "count": 500,
+      "success": 1,
+      "time": 2.8133392333984375e-05
+    },
+    {
+      "test": "分页查询卡密（最后一页）",
+      "count": 50,
+      "success": 1,
+      "time": 7.534027099609375e-05
+    }
+  ]
+}

@@ -51,4 +51,4 @@ uploads/
 static/uploads/
 
 # 配置文件（可选）
-# config.local.py
+# config.local.pydb/*.sqlite
