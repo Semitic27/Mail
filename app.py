@@ -2574,7 +2574,7 @@ def _add_mailbox(db, data):
             
         if existing:
             # 邮箱已存在，检查是否需要添加到分组
-            mailbox_id = existing[0] if db_type == 'sqlite' else existing[0]
+            mailbox_id = existing[0]
             
             # 如果提供了分组ID，尝试将已存在的邮箱添加到该分组
             if group_id and group_id not in ['-1', 'null', 'undefined', '']:
@@ -2622,6 +2622,7 @@ def _add_mailbox(db, data):
                             'message': '邮箱已添加到该分组'
                         })
                 except (ValueError, TypeError):
+                    # group_id 无效（非整数或None），忽略并返回通用错误
                     pass
             
             # 没有提供有效的分组ID，返回邮箱已存在错误
@@ -2739,7 +2740,7 @@ def _batch_add_mailbox(db, data):
                 
             if existing:
                 # 邮箱已存在，检查是否需要添加到分组
-                mailbox_id = existing[0] if db_type == 'sqlite' else existing[0]
+                mailbox_id = existing[0]
                 
                 # 如果提供了分组ID，尝试将已存在的邮箱添加到该分组
                 if group_id and group_id not in ['-1', 'null', 'undefined', '']:
@@ -2783,6 +2784,7 @@ def _batch_add_mailbox(db, data):
                                 errors.append(f'邮箱在该分组中已存在：{email}')
                                 continue
                     except (ValueError, TypeError):
+                        # group_id 无效（非整数或None），忽略并记录通用错误
                         pass
                 
                 # 没有提供有效的分组ID或其他情况，记录错误
