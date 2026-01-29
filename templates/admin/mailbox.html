@@ -1830,6 +1830,55 @@
         bindGroupPanelEvents();
         loadServers();
         loadMailboxes();
+        
+        // 使用事件委托处理邮箱表格按钮点击
+        const mailboxTable = document.getElementById('mailboxTable');
+        if (mailboxTable) {
+            mailboxTable.addEventListener('click', function(e) {
+                const target = e.target;
+                
+                // 处理操作按钮
+                if (target.tagName === 'BUTTON' && target.dataset.action) {
+                    const action = target.dataset.action;
+                    const mailboxId = parseInt(target.dataset.mailboxId, 10);
+                    
+                    if (!mailboxId) return;
+                    
+                    switch (action) {
+                        case 'edit':
+                            editMailbox(mailboxId);
+                            break;
+                        case 'receive':
+                            openReceiveModal(mailboxId);
+                            break;
+                        case 'send':
+                            openSendModal(mailboxId);
+                            break;
+                        case 'test':
+                            testMailbox(mailboxId);
+                            break;
+                        case 'remarks':
+                            editMailboxRemarks(mailboxId);
+                            break;
+                        case 'delete':
+                            deleteMailbox(mailboxId);
+                            break;
+                    }
+                }
+            });
+            
+            // 使用事件委托处理复选框变化
+            mailboxTable.addEventListener('change', function(e) {
+                const target = e.target;
+                
+                if (target.classList.contains('mailbox-checkbox')) {
+                    const mailboxId = parseInt(target.dataset.mailboxId, 10);
+                    if (mailboxId) {
+                        toggleMailboxSelection(mailboxId);
+                    }
+                }
+            });
+        }
     });
     
     // ========== 邮箱管理功能 ==========
@@ -1898,7 +1947,7 @@
             const row = document.createElement('tr');
             const rowNumber = (currentPage - 1) * perPage + index + 1;
             row.innerHTML = `
-                <td><input type="checkbox" class="mailbox-checkbox" value="${mailbox.id}" onchange="toggleMailboxSelection(${mailbox.id})"></td>
+                <td><input type="checkbox" class="mailbox-checkbox" value="${mailbox.id}" data-mailbox-id="${mailbox.id}"></td>
                 <td>${rowNumber}</td>
                 <td>${escapeHtml(getMailboxGroupName(mailbox))}</td>
                 <td>${escapeHtml(mailbox.email)}</td>
@@ -1910,12 +1959,12 @@
                 <td>${escapeHtml(mailbox.remarks || '')}</td>
                 <td>
                     <div class="actions" style="display: flex; gap: 5px; flex-wrap: wrap;">
-                        <button class="btn btn-success btn-small" onclick="editMailbox(${mailbox.id})">编辑</button>
-                        <button class="btn btn-primary btn-small" onclick="openReceiveModal(${mailbox.id})">收件</button>
-                        <button class="btn btn-primary btn-small" onclick="openSendModal(${mailbox.id})">发件</button>
-                        <button class="btn btn-primary btn-small" onclick="testMailbox(${mailbox.id})">测试</button>
-                        <button class="btn btn-success btn-small" onclick="editMailboxRemarks(${mailbox.id})">备注</button>
-                        <button class="btn btn-danger btn-small" onclick="deleteMailbox(${mailbox.id})">删除</button>
+                        <button class="btn btn-success btn-small" data-action="edit" data-mailbox-id="${mailbox.id}">编辑</button>
+                        <button class="btn btn-primary btn-small" data-action="receive" data-mailbox-id="${mailbox.id}">收件</button>
+                        <button class="btn btn-primary btn-small" data-action="send" data-mailbox-id="${mailbox.id}">发件</button>
+                        <button class="btn btn-primary btn-small" data-action="test" data-mailbox-id="${mailbox.id}">测试</button>
+                        <button class="btn btn-success btn-small" data-action="remarks" data-mailbox-id="${mailbox.id}">备注</button>
+                        <button class="btn btn-danger btn-small" data-action="delete" data-mailbox-id="${mailbox.id}">删除</button>
                     </div>
                 </td>
             `;
