@@ -1324,26 +1324,49 @@ def get_available_proxy_count():
         return 0
 
 def get_next_unified_proxy_id(db, proxy_type, proxy_table_id):
-    """获取下一个统一代理ID"""
+    """获取下一个统一代理ID - 查找最小可用ID或创建新ID"""
     try:
         db_type = app.config['DATABASE_TYPE']
         
-        # 插入到统一ID管理表
+        # 查找最小的可用ID（被删除后留下的空隙）
         if db_type == 'sqlite':
+            # 获取所有现有的ID
+            result = db.execute('SELECT id FROM unified_proxy_ids ORDER BY id').fetchall()
+            existing_ids = [row['id'] for row in result]
+            
+            # 查找第一个空缺的ID
+            next_id = 1
+            for existing_id in existing_ids:
+                if existing_id > next_id:
+                    break
+                next_id = existing_id + 1
+            
+            # 插入到统一ID管理表，使用找到的ID
             db.execute('''
-                INSERT INTO unified_proxy_ids (proxy_type, proxy_table_id)
-                VALUES (?, ?)
-            ''', (proxy_type, proxy_table_id))
-            # 获取刚插入的ID
-            result = db.execute('SELECT last_insert_rowid() as id').fetchone()
-            unified_id = result['id']
+                INSERT INTO unified_proxy_ids (id, proxy_type, proxy_table_id)
+                VALUES (?, ?, ?)
+            ''', (next_id, proxy_type, proxy_table_id))
+            unified_id = next_id
         else:
             cursor = db.cursor()
+            # 获取所有现有的ID
+            cursor.execute('SELECT id FROM unified_proxy_ids ORDER BY id')
+            result = cursor.fetchall()
+            existing_ids = [row[0] for row in result]
+            
+            # 查找第一个空缺的ID
+            next_id = 1
+            for existing_id in existing_ids:
+                if existing_id > next_id:
+                    break
+                next_id = existing_id + 1
+            
+            # 插入到统一ID管理表，使用找到的ID
             cursor.execute('''
-                INSERT INTO unified_proxy_ids (proxy_type, proxy_table_id)
-                VALUES (%s, %s)
-            ''', (proxy_type, proxy_table_id))
-            unified_id = cursor.lastrowid
+                INSERT INTO unified_proxy_ids (id, proxy_type, proxy_table_id)
+                VALUES (%s, %s, %s)
+            ''', (next_id, proxy_type, proxy_table_id))
+            unified_id = next_id
         
         return unified_id
     except Exception as e:
