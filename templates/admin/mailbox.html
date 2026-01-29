@@ -1842,7 +1842,7 @@
                     const action = target.dataset.action;
                     const mailboxId = parseInt(target.dataset.mailboxId, 10);
                     
-                    if (!mailboxId) return;
+                    if (!mailboxId || isNaN(mailboxId) || mailboxId <= 0) return;
                     
                     switch (action) {
                         case 'edit':
@@ -1873,7 +1873,7 @@
                 
                 if (target.classList.contains('mailbox-checkbox')) {
                     const mailboxId = parseInt(target.dataset.mailboxId, 10);
-                    if (mailboxId) {
+                    if (mailboxId && !isNaN(mailboxId) && mailboxId > 0) {
                         toggleMailboxSelection(mailboxId);
                     }
                 }

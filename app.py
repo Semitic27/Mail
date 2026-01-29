@@ -2383,17 +2383,28 @@ def api_admin_mailbox():
             # 获取单个邮箱详情
             try:
                 mailbox_id_int = int(mailbox_id)
+                if mailbox_id_int <= 0:
+                    return jsonify({
+                        'success': False,
+                        'message': '无效的邮箱ID'
+                    }), 400
+                    
                 if db_type == 'sqlite':
                     account = db.execute('SELECT * FROM mail_accounts WHERE id = ?', (mailbox_id_int,)).fetchone()
                 else:
                     cursor = db.cursor()
                     cursor.execute('SELECT * FROM mail_accounts WHERE id = %s', (mailbox_id_int,))
-                    account = cursor.fetchone()
+                    result = cursor.fetchone()
+                    if result:
+                        columns = [desc[0] for desc in cursor.description]
+                        account = dict(zip(columns, result))
+                    else:
+                        account = None
                 
                 if account:
                     return jsonify({
                         'success': True,
-                        'data': dict(account)
+                        'data': dict(account) if db_type == 'sqlite' else account
                     })
                 else:
                     return jsonify({
@@ -2405,6 +2416,12 @@ def api_admin_mailbox():
                     'success': False,
                     'message': '无效的邮箱ID'
                 }), 400
+            except Exception as e:
+                logger.error(f'获取邮箱详情失败: {e}')
+                return jsonify({
+                    'success': False,
+                    'message': '获取邮箱信息失败'
+                }), 500
         
         # 获取邮箱列表（支持分页和搜索）
         page = int(request.args.get('page', 1))
