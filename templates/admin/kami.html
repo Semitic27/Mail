@@ -1006,12 +1006,12 @@
     
     /* 分组展开/折叠按钮 */
     .group-toggle {
-        width: 20px;
-        height: 20px;
+        width: 24px;
+        height: 24px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-size: 12px;
+        font-size: 16px;
         color: #6b7280;
         cursor: pointer;
         margin-right: 5px;
@@ -1037,6 +1037,7 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
+        gap: 10px;
     }
     
     .email-list-item:hover {
@@ -1050,7 +1051,10 @@
     .email-list-item-address {
         font-weight: 500;
         color: #111827;
-        flex: 1;
+        flex: 0 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
     
     .email-list-item-select-btn {
@@ -1402,7 +1406,7 @@
                 <button class="modal-close" onclick="closeModal('emailSelectionModal')">&times;</button>
             </div>
             <div class="modal-body" style="max-height: calc(85vh - 140px); overflow: hidden;">
-                <div style="display: flex; gap: 15px; height: 100%;">
+                <div style="display: flex; gap: 15px; height: 100%; min-height: 500px;">
                     <!-- 左侧分组列表 -->
                     <div style="width: 250px; border-right: 1px solid #e5e7eb; overflow-y: auto; padding-right: 10px;">
                         <div style="margin-bottom: 10px; font-weight: 600; color: #374151; padding: 8px;">邮箱分组</div>
@@ -1411,12 +1415,12 @@
                         </div>
                     </div>
                     <!-- 右侧邮箱列表 -->
-                    <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
-                        <div style="margin-bottom: 15px; display: flex; gap: 8px; align-items: center;">
+                    <div style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+                        <div style="margin-bottom: 15px; display: flex; gap: 8px; align-items: center; flex-shrink: 0;">
                             <input type="text" id="emailSearchInput" class="form-control" placeholder="搜索邮箱地址..." oninput="filterEmailsInModal()" style="flex: 1;">
-                            <button type="button" class="btn btn-secondary" onclick="clearEmailSearch()" style="white-space: nowrap;">清除</button>
+                            <button type="button" class="btn btn-danger" onclick="clearEmailSearch()" style="white-space: nowrap;">清除</button>
                         </div>
-                        <div id="emailListContainer" style="flex: 1; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px;">
+                        <div id="emailListContainer" style="flex: 1; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; min-height: 0;">
                             <!-- 邮箱列表将通过JavaScript动态加载 -->
                         </div>
                     </div>
@@ -2413,6 +2417,12 @@
                 allMailboxGroups = groupsData.groups || [];
                 allMailboxGroupMappings = groupsData.mappings || [];
                 
+                // 初始化所有分组为折叠状态
+                collapsedGroupsInModal = {};
+                allMailboxGroups.forEach(group => {
+                    collapsedGroupsInModal[group.id] = true;
+                });
+                
                 renderEmailGroups();
                 document.getElementById('emailSelectionModal').classList.add('show');
             } else {
@@ -2452,11 +2462,11 @@
         const groupedMailboxIds = new Set(allMailboxGroupMappings.map(m => m.mailbox_id));
         const ungroupedMailboxes = allMailboxes.filter(m => !groupedMailboxIds.has(m.id));
         
-        // 添加"所有邮箱"选项
+        // 添加"所有分组"选项
         const allGroupItem = document.createElement('div');
         allGroupItem.className = 'group-list-item active';
         allGroupItem.dataset.groupId = 'ALL';
-        allGroupItem.textContent = `📬 所有邮箱 (${allMailboxes.length})`;
+        allGroupItem.textContent = `📬 所有分组 (${allMailboxes.length})`;
         allGroupItem.onclick = function() {
             selectGroupInModal('ALL', allMailboxes);
         };
