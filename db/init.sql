@@ -1,7 +1,7 @@
 -- 邮件账号管理数据库初始化（增强版）
 CREATE TABLE IF NOT EXISTS mail_accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT NOT NULL UNIQUE,
+    email TEXT NOT NULL,
     username TEXT NOT NULL,
     password TEXT NOT NULL,
     server TEXT NOT NULL,

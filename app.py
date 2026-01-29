@@ -481,6 +481,9 @@ def init_db():
             # 数据库迁移：为mail_accounts表添加发件相关字段
             migrate_mail_accounts_table(db, db_type)
             
+            # 数据库迁移：移除email字段的UNIQUE约束以支持邮箱多分组
+            migrate_remove_email_unique_constraint(db, db_type)
+            
             # 数据库迁移：为server_addresses表添加发件相关字段
             migrate_server_addresses_table(db, db_type)
             
@@ -1003,6 +1006,102 @@ def migrate_mail_accounts_table(db, db_type):
         db.commit()
     except Exception as e:
         logger.error(f"Error during mail_accounts table migration: {e}")
+
+def migrate_remove_email_unique_constraint(db, db_type):
+    """迁移mail_accounts表，移除email字段的UNIQUE约束以支持邮箱多分组"""
+    try:
+        if db_type == 'sqlite':
+            # Check if the UNIQUE constraint exists
+            result = db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='mail_accounts'").fetchone()
+            if result and 'UNIQUE' in result[0] and 'email' in result[0]:
+                logger.info("Removing UNIQUE constraint on email field from mail_accounts table")
+                
+                # SQLite doesn't support dropping constraints directly, need to recreate table
+                # Get all data first
+                accounts = db.execute('SELECT * FROM mail_accounts').fetchall()
+                
+                # Drop and recreate the table without UNIQUE constraint
+                db.execute('DROP TABLE IF EXISTS mail_accounts_backup')
+                db.execute('''
+                    CREATE TABLE mail_accounts_backup (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        email TEXT NOT NULL,
+                        username TEXT NOT NULL,
+                        password TEXT NOT NULL,
+                        server TEXT NOT NULL,
+                        port INTEGER NOT NULL,
+                        protocol TEXT NOT NULL DEFAULT 'imap',
+                        ssl INTEGER NOT NULL DEFAULT 1,
+                        send_server TEXT DEFAULT '',
+                        send_port INTEGER DEFAULT 465,
+                        send_protocol TEXT DEFAULT 'smtp',
+                        send_ssl INTEGER NOT NULL DEFAULT 1,
+                        remarks TEXT DEFAULT '',
+                        status INTEGER DEFAULT 1,
+                        last_test DATETIME DEFAULT NULL,
+                        test_result TEXT DEFAULT '',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                
+                # Copy data to backup table
+                if accounts:
+                    for account in accounts:
+                        db.execute('''
+                            INSERT INTO mail_accounts_backup 
+                            (id, email, username, password, server, port, protocol, ssl, send_server, send_port, send_protocol, send_ssl, remarks, status, last_test, test_result, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', tuple(account))
+                
+                # Drop old table and rename backup
+                db.execute('DROP TABLE mail_accounts')
+                db.execute('ALTER TABLE mail_accounts_backup RENAME TO mail_accounts')
+                
+                # Recreate indexes
+                db.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_email ON mail_accounts(email)')
+                db.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_created_at ON mail_accounts(created_at)')
+                db.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_status ON mail_accounts(status)')
+                db.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_email_created ON mail_accounts(email, created_at)')
+                
+                logger.info("UNIQUE constraint removed from email field successfully")
+        
+        elif db_type == 'mysql':
+            cursor = db.cursor()
+            # Check if UNIQUE constraint exists
+            cursor.execute("SHOW CREATE TABLE mail_accounts")
+            table_def = cursor.fetchone()[1]
+            if 'UNIQUE' in table_def and '`email`' in table_def:
+                logger.info("Removing UNIQUE constraint on email field from mail_accounts table")
+                # Find the constraint name
+                cursor.execute("""
+                    SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mail_accounts' 
+                    AND CONSTRAINT_TYPE = 'UNIQUE' AND CONSTRAINT_NAME LIKE '%email%'
+                """)
+                constraint = cursor.fetchone()
+                if constraint:
+                    cursor.execute(f'ALTER TABLE mail_accounts DROP INDEX {constraint[0]}')
+                    logger.info(f"Dropped UNIQUE constraint {constraint[0]} from email field")
+        
+        elif db_type == 'postgresql':
+            cursor = db.cursor()
+            # Check if UNIQUE constraint exists
+            cursor.execute("""
+                SELECT conname FROM pg_constraint 
+                WHERE conrelid = 'mail_accounts'::regclass AND contype = 'u'
+                AND conname LIKE '%email%'
+            """)
+            constraint = cursor.fetchone()
+            if constraint:
+                logger.info(f"Removing UNIQUE constraint {constraint[0]} on email field from mail_accounts table")
+                cursor.execute(f'ALTER TABLE mail_accounts DROP CONSTRAINT {constraint[0]}')
+                logger.info("UNIQUE constraint removed from email field successfully")
+        
+        db.commit()
+        logger.info("Email UNIQUE constraint migration completed")
+    except Exception as e:
+        logger.error(f"Error during email UNIQUE constraint migration: {e}")
 
 def ensure_mail_account_indexes(db, db_type):
     """为mail_accounts表创建性能相关索引（主要针对SQLite大数据量场景）"""
@@ -2564,19 +2663,57 @@ def _add_mailbox(db, data):
     
     try:
         db_type = app.config['DATABASE_TYPE']
-        # 检查邮箱是否已存在
+        
+        # 检查该邮箱在哪些分组中已存在
+        existing_groups = []
         if db_type == 'sqlite':
-            existing = db.execute('SELECT id FROM mail_accounts WHERE email = ?', (email,)).fetchone()
+            existing_accounts = db.execute('''
+                SELECT ma.id, mg.name as group_name, mgm.group_id
+                FROM mail_accounts ma
+                LEFT JOIN mailbox_group_mappings mgm ON ma.id = mgm.mailbox_id
+                LEFT JOIN mailbox_groups mg ON mgm.group_id = mg.id
+                WHERE ma.email = ?
+            ''', (email,)).fetchall()
         else:
             cursor = db.cursor()
-            cursor.execute('SELECT id FROM mail_accounts WHERE email = %s', (email,))
-            existing = cursor.fetchone()
-            
-        if existing:
-            return jsonify({
-                'success': False,
-                'message': '邮箱已存在'
-            })
+            cursor.execute('''
+                SELECT ma.id, mg.name as group_name, mgm.group_id
+                FROM mail_accounts ma
+                LEFT JOIN mailbox_group_mappings mgm ON ma.id = mgm.mailbox_id
+                LEFT JOIN mailbox_groups mg ON mgm.group_id = mg.id
+                WHERE ma.email = %s
+            ''', (email,))
+            existing_accounts = cursor.fetchall()
+        
+        # 检查是否在当前分组中已存在
+        if group_id and group_id not in ['-1', 'null', 'undefined', '']:
+            try:
+                group_id_int = int(group_id)
+                for account in existing_accounts:
+                    account_dict = dict(account) if db_type == 'sqlite' else {
+                        'id': account[0],
+                        'group_name': account[1],
+                        'group_id': account[2]
+                    }
+                    if account_dict.get('group_id') == group_id_int:
+                        return jsonify({
+                            'success': False,
+                            'message': f'邮箱已存在于当前分组中'
+                        })
+                    if account_dict.get('group_name'):
+                        existing_groups.append(account_dict['group_name'])
+            except (ValueError, TypeError):
+                pass
+        else:
+            # 如果未指定分组，收集所有存在的分组信息
+            for account in existing_accounts:
+                account_dict = dict(account) if db_type == 'sqlite' else {
+                    'id': account[0],
+                    'group_name': account[1],
+                    'group_id': account[2]
+                }
+                if account_dict.get('group_name'):
+                    existing_groups.append(account_dict['group_name'])
         
         # 插入新邮箱
         now = get_beijing_time()
@@ -2618,9 +2755,15 @@ def _add_mailbox(db, data):
                 # Invalid group_id, skip mapping
                 pass
         
+        # 构建成功消息
+        success_message = '邮箱添加成功'
+        if existing_groups:
+            groups_str = '、'.join(existing_groups)
+            success_message = f'邮箱添加成功（邮箱已存在于{groups_str}中）'
+        
         return jsonify({
             'success': True,
-            'message': '邮箱添加成功'
+            'message': success_message
         })
         
     except Exception as e:
@@ -2628,6 +2771,7 @@ def _add_mailbox(db, data):
             'success': False,
             'message': f'添加失败: {str(e)}'
         })
+
 
 def _batch_add_mailbox(db, data):
     """批量添加邮箱"""
@@ -2677,17 +2821,60 @@ def _batch_add_mailbox(db, data):
                 errors.append(f'账号或密码为空：{line}')
                 continue
             
-            # 检查邮箱是否已存在
+            # 检查该邮箱在哪些分组中已存在（当前分组）
+            existing_in_group = False
+            existing_groups = []
             if db_type == 'sqlite':
-                existing = db.execute('SELECT id FROM mail_accounts WHERE email = ?', (email,)).fetchone()
+                existing_accounts = db.execute('''
+                    SELECT ma.id, mg.name as group_name, mgm.group_id
+                    FROM mail_accounts ma
+                    LEFT JOIN mailbox_group_mappings mgm ON ma.id = mgm.mailbox_id
+                    LEFT JOIN mailbox_groups mg ON mgm.group_id = mg.id
+                    WHERE ma.email = ?
+                ''', (email,)).fetchall()
             else:
                 cursor = db.cursor()
-                cursor.execute('SELECT id FROM mail_accounts WHERE email = %s', (email,))
-                existing = cursor.fetchone()
-                
-            if existing:
+                cursor.execute('''
+                    SELECT ma.id, mg.name as group_name, mgm.group_id
+                    FROM mail_accounts ma
+                    LEFT JOIN mailbox_group_mappings mgm ON ma.id = mgm.mailbox_id
+                    LEFT JOIN mailbox_groups mg ON mgm.group_id = mg.id
+                    WHERE ma.email = %s
+                ''', (email,))
+                existing_accounts = cursor.fetchall()
+            
+            # 检查是否在当前分组中已存在
+            if group_id and group_id not in ['-1', 'null', 'undefined', '']:
+                try:
+                    group_id_int = int(group_id)
+                    for account in existing_accounts:
+                        account_dict = dict(account) if db_type == 'sqlite' else {
+                            'id': account[0],
+                            'group_name': account[1],
+                            'group_id': account[2]
+                        }
+                        if account_dict.get('group_id') == group_id_int:
+                            existing_in_group = True
+                            break
+                        if account_dict.get('group_name'):
+                            existing_groups.append(account_dict['group_name'])
+                except (ValueError, TypeError):
+                    pass
+            else:
+                # 如果未指定分组，收集所有存在的分组信息
+                for account in existing_accounts:
+                    account_dict = dict(account) if db_type == 'sqlite' else {
+                        'id': account[0],
+                        'group_name': account[1],
+                        'group_id': account[2]
+                    }
+                    if account_dict.get('group_name'):
+                        existing_groups.append(account_dict['group_name'])
+            
+            # 如果在当前分组中已存在，跳过
+            if existing_in_group:
                 error_count += 1
-                errors.append(f'邮箱已存在：{email}')
+                errors.append(f'邮箱已存在于当前分组：{email}')
                 continue
             
             # 插入邮箱
@@ -2727,6 +2914,10 @@ def _batch_add_mailbox(db, data):
                     pass
             
             success_count += 1
+            # 如果有已存在的分组信息，添加到错误列表作为通知
+            if existing_groups:
+                groups_str = '、'.join(existing_groups)
+                errors.append(f'邮箱已存在于{groups_str}中：{email}')
             
         except Exception as e:
             error_count += 1
