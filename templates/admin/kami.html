@@ -2368,40 +2368,34 @@
         showToast('API页面已打开，链接已复制到剪贴板', 'success');
     }
 
+    // 辅助函数：获取邮箱加载URL（减少代码重复）
+    function getMailboxLoadUrl(cardId) {
+        if (cardId) {
+            // 编辑模式：获取可绑定的邮箱
+            return `/admin/api/cards/${cardId}/available-emails?per_page=100`;
+        } else {
+            // 添加模式：获取所有邮箱
+            return '/admin/api/mailbox?per_page=100&fast=1';
+        }
+    }
+
     // 加载邮箱列表（用于绑定）- 更新为只获取未绑定的邮箱，并使用分页
     function loadEmailList(callback) {
-        // 对于编辑模式，需要获取当前卡密可绑定的邮箱
         const cardId = document.getElementById('editCardId').value;
+        const url = getMailboxLoadUrl(cardId);
         
-        if (cardId) {
-            // 编辑模式：获取可绑定的邮箱（分页加载，提升性能）
-            fetch(`/admin/api/cards/${cardId}/available-emails?per_page=100`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        updateEmailSelectOptions(data.data);
-                        if (callback) callback();
-                    }
-                })
-                .catch(error => {
-                    console.error('加载可绑定邮箱列表失败:', error);
+        fetch(url)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateEmailSelectOptions(data.data);
                     if (callback) callback();
-                });
-        } else {
-            // 添加模式：获取所有未绑定的邮箱（限制数量，避免加载过多）
-            fetch('/admin/api/mailbox?per_page=100&fast=1')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        updateEmailSelectOptions(data.data);
-                        if (callback) callback();
-                    }
-                })
-                .catch(error => {
-                    console.error('加载邮箱列表失败:', error);
-                    if (callback) callback();
-                });
-        }
+                }
+            })
+            .catch(error => {
+                console.error('加载邮箱列表失败:', error);
+                if (callback) callback();
+            });
     }
     
     // 更新邮箱选择器选项
@@ -2447,12 +2441,7 @@
         try {
             // 加载邮箱列表和分组 - 优化：使用分页，按需加载
             const cardId = document.getElementById('editCardId').value;
-            let mailboxUrl = '/admin/api/mailbox?per_page=100&fast=1';
-            
-            // 如果是编辑模式，使用可绑定邮箱API
-            if (cardId) {
-                mailboxUrl = `/admin/api/cards/${cardId}/available-emails?per_page=100`;
-            }
+            const mailboxUrl = getMailboxLoadUrl(cardId);
             
             const [mailboxResponse, groupsResponse] = await Promise.all([
                 fetch(mailboxUrl),
@@ -2467,7 +2456,7 @@
                 allMailboxGroups = groupsData.groups || [];
                 allMailboxGroupMappings = groupsData.mappings || [];
                 
-                // 保存分页信息，用于"加载更多"
+                // 保存分页信息，用于"加载更多"功能（未来可扩展）
                 window.emailSelectionPagination = mailboxData.pagination || { page: 1, pages: 1 };
                 
                 // 初始化所有分组为折叠状态（每次打开模态框时重置，确保一致的用户体验）

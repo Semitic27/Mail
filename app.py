@@ -1102,32 +1102,48 @@ def ensure_mail_account_indexes(db, db_type):
             db.execute('CREATE INDEX IF NOT EXISTS idx_cards_bound_email_id ON cards(bound_email_id)')
             # 新增：优化状态筛选
             db.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_status_id ON mail_accounts(status, id)')
+            db.commit()
             logger.info("SQLite performance indexes created successfully")
         elif db_type == 'mysql':
             cursor = db.cursor()
-            # MySQL索引（使用IF NOT EXISTS语法或忽略错误）
-            indexes = [
-                ('idx_mail_accounts_created_at', 'mail_accounts', 'created_at'),
-                ('idx_mail_accounts_email_created', 'mail_accounts', 'email, created_at'),
-                ('idx_cards_bound_email_id', 'cards', 'bound_email_id'),
-                ('idx_mail_accounts_status_id', 'mail_accounts', 'status, id'),
-            ]
-            for idx_name, table_name, columns in indexes:
-                try:
-                    cursor.execute(f'CREATE INDEX {idx_name} ON {table_name}({columns})')
-                except Exception as e:
-                    # 索引已存在时忽略错误
-                    if 'Duplicate key name' not in str(e) and 'already exists' not in str(e):
-                        logger.warning(f"Failed to create index {idx_name}: {e}")
-            logger.info("MySQL performance indexes created successfully")
+            try:
+                # MySQL索引（使用IF NOT EXISTS语法或忽略错误）
+                indexes = [
+                    ('idx_mail_accounts_created_at', 'mail_accounts', 'created_at'),
+                    ('idx_mail_accounts_email_created', 'mail_accounts', 'email, created_at'),
+                    ('idx_cards_bound_email_id', 'cards', 'bound_email_id'),
+                    ('idx_mail_accounts_status_id', 'mail_accounts', 'status, id'),
+                ]
+                for idx_name, table_name, columns in indexes:
+                    try:
+                        cursor.execute(f'CREATE INDEX {idx_name} ON {table_name}({columns})')
+                    except Exception as e:
+                        # 索引已存在时忽略错误
+                        if 'Duplicate key name' not in str(e) and 'already exists' not in str(e):
+                            logger.warning(f"Failed to create index {idx_name}: {e}")
+                db.commit()  # Commit after creating indexes
+                logger.info("MySQL performance indexes created successfully")
+            finally:
+                cursor.close()
         elif db_type == 'postgresql':
             cursor = db.cursor()
-            # PostgreSQL索引（使用CREATE INDEX IF NOT EXISTS）
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_created_at ON mail_accounts(created_at)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_email_created ON mail_accounts(email, created_at)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_cards_bound_email_id ON cards(bound_email_id)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_status_id ON mail_accounts(status, id)')
-            logger.info("PostgreSQL performance indexes created successfully")
+            try:
+                # PostgreSQL索引（使用CREATE INDEX IF NOT EXISTS）- 逐个创建以保证部分失败不影响其他索引
+                indexes = [
+                    'CREATE INDEX IF NOT EXISTS idx_mail_accounts_created_at ON mail_accounts(created_at)',
+                    'CREATE INDEX IF NOT EXISTS idx_mail_accounts_email_created ON mail_accounts(email, created_at)',
+                    'CREATE INDEX IF NOT EXISTS idx_cards_bound_email_id ON cards(bound_email_id)',
+                    'CREATE INDEX IF NOT EXISTS idx_mail_accounts_status_id ON mail_accounts(status, id)',
+                ]
+                for idx_sql in indexes:
+                    try:
+                        cursor.execute(idx_sql)
+                    except Exception as e:
+                        logger.warning(f"Failed to create index: {e}")
+                db.commit()  # Commit after creating indexes
+                logger.info("PostgreSQL performance indexes created successfully")
+            finally:
+                cursor.close()
     except Exception as e:
         logger.warning(f"Failed to ensure performance indexes: {e}")
 
@@ -5429,42 +5445,45 @@ def api_admin_card_available_emails(card_id):
             placeholder = '%s'
             search_clause_mysql = search_clause.replace('?', placeholder) if search_clause else ""
             
-            sql = f'''
-                SELECT id, email, server, port, protocol, ssl, remarks, status
-                FROM mail_accounts ma
-                WHERE ma.id NOT IN (
-                    SELECT DISTINCT bound_email_id 
-                    FROM cards 
-                    WHERE bound_email_id IS NOT NULL AND id != {placeholder}
-                )
-                {search_clause_mysql}
-                ORDER BY email ASC
-                LIMIT {per_page} OFFSET {offset}
-            '''
-            params = [card_id] + search_params
-            cursor.execute(sql, params)
-            rows = cursor.fetchall()
-            
-            # 获取总数
-            count_sql = f'''
-                SELECT COUNT(*) as count
-                FROM mail_accounts ma
-                WHERE ma.id NOT IN (
-                    SELECT DISTINCT bound_email_id 
-                    FROM cards 
-                    WHERE bound_email_id IS NOT NULL AND id != {placeholder}
-                )
-                {search_clause_mysql}
-            '''
-            cursor.execute(count_sql, [card_id] + search_params)
-            total = cursor.fetchone()[0]
-            
-            # 转换为字典列表
-            if rows:
-                columns = [desc[0] for desc in cursor.description]
-                available_emails = [dict(zip(columns, row)) for row in rows]
-            else:
-                available_emails = []
+            try:
+                sql = f'''
+                    SELECT id, email, server, port, protocol, ssl, remarks, status
+                    FROM mail_accounts ma
+                    WHERE ma.id NOT IN (
+                        SELECT DISTINCT bound_email_id 
+                        FROM cards 
+                        WHERE bound_email_id IS NOT NULL AND id != {placeholder}
+                    )
+                    {search_clause_mysql}
+                    ORDER BY email ASC
+                    LIMIT {placeholder} OFFSET {placeholder}
+                '''
+                params = [card_id] + search_params + [per_page, offset]
+                cursor.execute(sql, params)
+                rows = cursor.fetchall()
+                
+                # 获取总数
+                count_sql = f'''
+                    SELECT COUNT(*) as count
+                    FROM mail_accounts ma
+                    WHERE ma.id NOT IN (
+                        SELECT DISTINCT bound_email_id 
+                        FROM cards 
+                        WHERE bound_email_id IS NOT NULL AND id != {placeholder}
+                    )
+                    {search_clause_mysql}
+                '''
+                cursor.execute(count_sql, [card_id] + search_params)
+                total = cursor.fetchone()[0]
+                
+                # 转换为字典列表
+                if rows:
+                    columns = [desc[0] for desc in cursor.description]
+                    available_emails = [dict(zip(columns, row)) for row in rows]
+                else:
+                    available_emails = []
+            finally:
+                cursor.close()
         
         return jsonify({
             'success': True,
