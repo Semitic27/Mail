@@ -1332,10 +1332,11 @@
             if (page !== null) currentPage = page;
             if (search !== null) searchQuery = search;
             
-            // 并行加载HTTP和SOCKS5代理
+            // Load both HTTP and SOCKS5 proxies with reduced per_page for better performance
+            // Note: Client-side pagination is used after merging both types
             const [httpResponse, socks5Response] = await Promise.all([
-                fetch(`/admin/api/proxies/http?page=1&per_page=1000&search=${searchQuery}`),
-                fetch(`/admin/api/proxies/socks5?page=1&per_page=1000&search=${searchQuery}`)
+                fetch(`/admin/api/proxies/http?page=1&per_page=100&search=${searchQuery}`),
+                fetch(`/admin/api/proxies/socks5?page=1&per_page=100&search=${searchQuery}`)
             ]);
             
             const httpData = await httpResponse.json();

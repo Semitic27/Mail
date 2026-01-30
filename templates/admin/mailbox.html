@@ -1902,9 +1902,10 @@
             currentPage = page;
             searchQuery = search;
             
+            // Use smaller page size for better performance with large datasets
             const params = new URLSearchParams({
-                page: 1,
-                per_page: 1000,
+                page: page,
+                per_page: perPage,
                 search: search,
                 fast: '1'
             });
@@ -1922,7 +1923,14 @@
                 mailboxData = data.data || [];
                 await refreshMailboxGroupMappings();
                 rebuildMailboxGroupMapFromMappings();
-                renderMailboxView(page);
+                renderMailboxView(page); // Use the actual page parameter
+                
+                // Update pagination with server-side totals
+                if (data.pagination && data.pagination.total !== null) {
+                    const totalCount = data.pagination.total;
+                    totalPages = data.pagination.pages || Math.ceil(totalCount / perPage);
+                    renderPaginationManual(totalCount, page); // Use the actual page parameter
+                }
             } else {
                 showToast('加载邮箱列表失败', 'error');
             }
@@ -1975,6 +1983,14 @@
     }
     
     function renderMailboxView(page = 1) {
+        // When changing pages, reload from server for better performance with large datasets
+        if (page !== currentPage) {
+            loadMailboxes(page, searchQuery);
+            return;
+        }
+        
+        // Note: With server-side pagination, group filtering only applies to the current page
+        // For large datasets, consider implementing server-side group filtering
         const filteredByGroup = mailboxData.filter(mailbox => {
             const groupId = mailboxGroupMap[mailbox.id] ?? mailboxGroupMap[mailbox.email];
             if (selectedGroupId === ROOT_GROUP_ID) return true;
@@ -1987,12 +2003,8 @@
         const selectAll = document.getElementById('selectAll');
         if (selectAll) selectAll.checked = false;
 
-        const safePage = Math.max(1, Math.min(page, Math.max(1, Math.ceil(filteredByGroup.length / perPage))));
-        const start = (safePage - 1) * perPage;
-        const pageData = filteredByGroup.slice(start, start + perPage);
-        currentPage = safePage;
-        renderMailboxTable(pageData);
-        renderPaginationManual(filteredByGroup.length, safePage);
+        renderMailboxTable(filteredByGroup);
+        // Note: pagination info shows total mailboxes, not filtered count
     }
 
     // 渲染分页
@@ -2648,7 +2660,7 @@
     // 改变每页显示数量
     function changePerPage() {
         perPage = parseInt(document.getElementById('perPageSelect').value, 10);
-        renderMailboxView(1);
+        loadMailboxes(1, searchQuery); // Reload from server with new page size
     }
 
     function loadReceiveStore() {

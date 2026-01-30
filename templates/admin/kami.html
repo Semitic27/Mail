@@ -2388,8 +2388,8 @@
                     if (callback) callback();
                 });
         } else {
-            // 添加模式：获取所有未绑定的邮箱
-            fetch('/admin/api/mailbox?per_page=100')
+            // 添加模式：获取未绑定的邮箱，限制为50条以提高性能
+            fetch('/admin/api/mailbox?per_page=50&fast=1')
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
@@ -2445,9 +2445,9 @@
     // 打开邮箱选择模态框
     async function openEmailSelectionModal() {
         try {
-            // 加载邮箱列表和分组
+            // Load mailbox list and groups with pagination for better performance
             const [mailboxResponse, groupsResponse] = await Promise.all([
-                fetch('/admin/api/mailbox?per_page=1000'),
+                fetch('/admin/api/mailbox?per_page=100&fast=1'), // Reduced from 1000 to 100, use fast mode
                 fetch('/admin/api/mailbox-groups')
             ]);
             
@@ -2468,6 +2468,11 @@
                 
                 renderEmailGroups();
                 document.getElementById('emailSelectionModal').classList.add('show');
+                
+                // Show hint if there are more mailboxes
+                if (mailboxData.pagination && mailboxData.pagination.total > 100) {
+                    showToast(`已加载前100个邮箱，共${mailboxData.pagination.total}个，使用搜索查找更多`, 'info');
+                }
             } else {
                 showToast('加载邮箱数据失败', 'error');
             }
