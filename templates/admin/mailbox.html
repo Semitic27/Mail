@@ -1902,6 +1902,15 @@
             currentPage = page;
             searchQuery = search;
             
+            // Show loading indicator
+            const tbody = document.querySelector('#mailboxTable tbody');
+            if (tbody) {
+                const colCount = document.querySelectorAll('#mailboxTable thead th').length || 8;
+                tbody.innerHTML = `<tr><td colspan="${colCount}" style="text-align: center; color: #667eea; padding: 20px;">
+                    <i class="fas fa-spinner fa-spin"></i> 加载中...
+                </td></tr>`;
+            }
+            
             // Use server-side pagination - load only what we need per page
             const params = new URLSearchParams({
                 page: page,
@@ -1930,10 +1939,19 @@
                 renderMailboxView(page);
             } else {
                 showToast('加载邮箱列表失败', 'error');
+                if (tbody) {
+                    const colCount = document.querySelectorAll('#mailboxTable thead th').length || 8;
+                    tbody.innerHTML = `<tr><td colspan="${colCount}" style="text-align: center; color: #ef4444;">加载失败</td></tr>`;
+                }
             }
         } catch (error) {
             console.error('加载邮箱列表失败:', error);
             showToast('网络错误，请稍后重试', 'error');
+            const tbody = document.querySelector('#mailboxTable tbody');
+            if (tbody) {
+                const colCount = document.querySelectorAll('#mailboxTable thead th').length || 8;
+                tbody.innerHTML = `<tr><td colspan="${colCount}" style="text-align: center; color: #ef4444;">网络错误</td></tr>`;
+            }
         }
     }
     

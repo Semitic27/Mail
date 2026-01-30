@@ -186,6 +186,7 @@ INSERT OR IGNORE INTO proxy_config (config_key, config_value, description) VALUE
 CREATE INDEX IF NOT EXISTS idx_mail_accounts_email ON mail_accounts(email);
 CREATE INDEX IF NOT EXISTS idx_mail_accounts_created_at ON mail_accounts(created_at);
 CREATE INDEX IF NOT EXISTS idx_mail_accounts_status ON mail_accounts(status);
+CREATE INDEX IF NOT EXISTS idx_mail_accounts_id_status ON mail_accounts(id, status);  -- 组合索引优化排序+过滤
 CREATE INDEX IF NOT EXISTS idx_server_addresses_name ON server_addresses(server_name);
 CREATE INDEX IF NOT EXISTS idx_server_addresses_address ON server_addresses(server_address);
 CREATE INDEX IF NOT EXISTS idx_server_addresses_status ON server_addresses(status);
@@ -197,6 +198,7 @@ CREATE INDEX IF NOT EXISTS idx_unified_proxy_ids_type ON unified_proxy_ids(proxy
 CREATE INDEX IF NOT EXISTS idx_unified_proxy_ids_table_id ON unified_proxy_ids(proxy_table_id);
 CREATE INDEX IF NOT EXISTS idx_cards_key ON cards(card_key);
 CREATE INDEX IF NOT EXISTS idx_cards_status ON cards(status);
+CREATE INDEX IF NOT EXISTS idx_cards_id_status ON cards(id, status);  -- 组合索引优化排序+过滤
 CREATE INDEX IF NOT EXISTS idx_card_logs_card_id ON card_logs(card_id);
 CREATE INDEX IF NOT EXISTS idx_card_logs_created_at ON card_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_mail_logs_email ON mail_logs(email);

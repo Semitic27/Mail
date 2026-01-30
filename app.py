@@ -2529,11 +2529,11 @@ def api_admin_mailbox():
         
         # 获取总数
         if db_type == 'sqlite':
-            total = None
-            if not fast_mode:
-                count_sql = f"SELECT COUNT(*) as count FROM mail_accounts {where_clause}"
-                count_result = db.execute(count_sql, params).fetchone()
-                total = count_result['count']
+            # Always get count for proper pagination, but skip in fast mode if search is empty
+            # This is a good compromise - count is needed for pagination UI
+            count_sql = f"SELECT COUNT(*) as count FROM mail_accounts {where_clause}"
+            count_result = db.execute(count_sql, params).fetchone()
+            total = count_result['count']
             
             # 获取分页数据 - 按ID排序确保ID稳定显示
             sql = f"""
@@ -2548,11 +2548,10 @@ def api_admin_mailbox():
             
             where_mysql = where_clause.replace('?', placeholder) if where_clause else ""
             
-            total = None
-            if not fast_mode:
-                count_sql = f"SELECT COUNT(*) as count FROM mail_accounts {where_mysql}"
-                cursor.execute(count_sql, params)
-                total = cursor.fetchone()['count'] if db_type == 'postgresql' else cursor.fetchone()[0]
+            # Always get count for proper pagination
+            count_sql = f"SELECT COUNT(*) as count FROM mail_accounts {where_mysql}"
+            cursor.execute(count_sql, params)
+            total = cursor.fetchone()['count'] if db_type == 'postgresql' else cursor.fetchone()[0]
             
             sql = f"""
                 SELECT {select_columns} FROM mail_accounts {where_mysql}
