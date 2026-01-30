@@ -204,6 +204,15 @@ CREATE INDEX IF NOT EXISTS idx_mail_logs_created_at ON mail_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_system_config_key ON system_config(config_key);
 CREATE INDEX IF NOT EXISTS idx_proxy_config_key ON proxy_config(config_key);
 
+-- 性能优化索引（用于大数据量快速搜索和过滤）
+CREATE INDEX IF NOT EXISTS idx_mail_accounts_search ON mail_accounts(email, server, remarks);
+CREATE INDEX IF NOT EXISTS idx_mail_accounts_email_created ON mail_accounts(email, created_at);
+CREATE INDEX IF NOT EXISTS idx_cards_search ON cards(card_key, remarks, status);
+CREATE INDEX IF NOT EXISTS idx_cards_bound_email ON cards(bound_email_id);
+CREATE INDEX IF NOT EXISTS idx_http_proxies_search ON http_proxies(name, host, remarks);
+CREATE INDEX IF NOT EXISTS idx_socks5_proxies_search ON socks5_proxies(name, host, remarks);
+
+
 -- 邮箱分组管理表
 CREATE TABLE IF NOT EXISTS mailbox_groups (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
