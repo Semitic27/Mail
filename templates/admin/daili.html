@@ -1326,16 +1326,19 @@
     
     // ========== 统一代理管理功能 ==========
     
-    // 加载所有代理列表（HTTP + SOCKS5）
+    // 加载所有代理列表（HTTP + SOCKS5）- 优化版：使用更小的分页加载
     async function loadAllProxies(page = null, search = null) {
         try {
             if (page !== null) currentPage = page;
             if (search !== null) searchQuery = search;
             
+            // 优化：减少每次加载的数量，避免一次性加载过多数据
+            const loadLimit = 500; // 从1000降低到500，减少内存占用
+            
             // 并行加载HTTP和SOCKS5代理
             const [httpResponse, socks5Response] = await Promise.all([
-                fetch(`/admin/api/proxies/http?page=1&per_page=1000&search=${searchQuery}`),
-                fetch(`/admin/api/proxies/socks5?page=1&per_page=1000&search=${searchQuery}`)
+                fetch(`/admin/api/proxies/http?page=1&per_page=${loadLimit}&search=${searchQuery}`),
+                fetch(`/admin/api/proxies/socks5?page=1&per_page=${loadLimit}&search=${searchQuery}`)
             ]);
             
             const httpData = await httpResponse.json();

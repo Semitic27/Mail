@@ -2368,40 +2368,34 @@
         showToast('API页面已打开，链接已复制到剪贴板', 'success');
     }
 
-    // 加载邮箱列表（用于绑定）- 更新为只获取未绑定的邮箱
-    function loadEmailList(callback) {
-        // 对于编辑模式，需要获取当前卡密可绑定的邮箱
-        const cardId = document.getElementById('editCardId').value;
-        
+    // 辅助函数：获取邮箱加载URL（减少代码重复）
+    function getMailboxLoadUrl(cardId) {
         if (cardId) {
             // 编辑模式：获取可绑定的邮箱
-            fetch(`/admin/api/cards/${cardId}/available-emails`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        updateEmailSelectOptions(data.data);
-                        if (callback) callback();
-                    }
-                })
-                .catch(error => {
-                    console.error('加载可绑定邮箱列表失败:', error);
-                    if (callback) callback();
-                });
+            return `/admin/api/cards/${cardId}/available-emails?per_page=100`;
         } else {
-            // 添加模式：获取所有未绑定的邮箱
-            fetch('/admin/api/mailbox?per_page=100')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        updateEmailSelectOptions(data.data);
-                        if (callback) callback();
-                    }
-                })
-                .catch(error => {
-                    console.error('加载邮箱列表失败:', error);
-                    if (callback) callback();
-                });
+            // 添加模式：获取所有邮箱
+            return '/admin/api/mailbox?per_page=100&fast=1';
         }
+    }
+
+    // 加载邮箱列表（用于绑定）- 更新为只获取未绑定的邮箱，并使用分页
+    function loadEmailList(callback) {
+        const cardId = document.getElementById('editCardId').value;
+        const url = getMailboxLoadUrl(cardId);
+        
+        fetch(url)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateEmailSelectOptions(data.data);
+                    if (callback) callback();
+                }
+            })
+            .catch(error => {
+                console.error('加载邮箱列表失败:', error);
+                if (callback) callback();
+            });
     }
     
     // 更新邮箱选择器选项
@@ -2445,9 +2439,12 @@
     // 打开邮箱选择模态框
     async function openEmailSelectionModal() {
         try {
-            // 加载邮箱列表和分组
+            // 加载邮箱列表和分组 - 优化：使用分页，按需加载
+            const cardId = document.getElementById('editCardId').value;
+            const mailboxUrl = getMailboxLoadUrl(cardId);
+            
             const [mailboxResponse, groupsResponse] = await Promise.all([
-                fetch('/admin/api/mailbox?per_page=1000'),
+                fetch(mailboxUrl),
                 fetch('/admin/api/mailbox-groups')
             ]);
             
@@ -2458,6 +2455,9 @@
                 allMailboxes = mailboxData.data;
                 allMailboxGroups = groupsData.groups || [];
                 allMailboxGroupMappings = groupsData.mappings || [];
+                
+                // 保存分页信息，用于"加载更多"功能（未来可扩展）
+                window.emailSelectionPagination = mailboxData.pagination || { page: 1, pages: 1 };
                 
                 // 初始化所有分组为折叠状态（每次打开模态框时重置，确保一致的用户体验）
                 // Initialize all groups as collapsed (reset on each modal open for consistent UX)
