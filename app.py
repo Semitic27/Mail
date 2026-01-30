@@ -5406,14 +5406,23 @@ def api_admin_card_available_emails(card_id):
     db_type = app.config['DATABASE_TYPE']
     
     try:
-        # 获取分页和搜索参数
-        page = int(request.args.get('page', 1))
-        per_page = int(request.args.get('per_page', 50))
+        # 获取分页和搜索参数，添加验证
+        try:
+            page = int(request.args.get('page', 1))
+            per_page = int(request.args.get('per_page', 50))
+        except (ValueError, TypeError):
+            page = 1
+            per_page = 50
+        
+        # 验证参数范围
+        page = max(1, min(page, 10000))  # 限制最大页码
+        per_page = max(1, min(per_page, 200))  # 限制每页数量在1-200之间
+        
         search = request.args.get('search', '').strip()
         
         offset = (page - 1) * per_page
         
-        # 构建查询条件 - 使用子查询优化，直接在SQL中排除已绑定的邮箱
+        # 构建查询条件 - 使用NOT EXISTS优化，比NOT IN性能更好
         where_clause = ""
         params = [card_id]
         
@@ -5422,18 +5431,18 @@ def api_admin_card_available_emails(card_id):
             search_param = f"%{search}%"
             params.extend([search_param, search_param, search_param])
         
-        # 使用优化的查询 - 直接在SQL中排除已绑定邮箱，避免在Python中过滤
+        # 使用优化的查询 - 使用NOT EXISTS代替NOT IN以提升性能
         if db_type == 'sqlite':
             # 获取总数
             count_sql = f"""
                 SELECT COUNT(*) as count 
                 FROM mail_accounts m
-                WHERE m.id NOT IN (
-                    SELECT bound_email_id 
+                WHERE NOT EXISTS (
+                    SELECT 1
                     FROM cards 
-                    WHERE bound_email_id IS NOT NULL AND id != ?
+                    WHERE bound_email_id = m.id AND bound_email_id IS NOT NULL AND id != ?
                 )
-                {where_clause.replace('?', '?')}
+                {where_clause}
             """
             count_result = db.execute(count_sql, params).fetchone()
             total = count_result['count']
@@ -5443,12 +5452,12 @@ def api_admin_card_available_emails(card_id):
                 SELECT m.id, m.email, m.server, m.port, m.protocol, m.ssl, 
                        m.send_server, m.send_port, m.remarks, m.status
                 FROM mail_accounts m
-                WHERE m.id NOT IN (
-                    SELECT bound_email_id 
+                WHERE NOT EXISTS (
+                    SELECT 1
                     FROM cards 
-                    WHERE bound_email_id IS NOT NULL AND id != ?
+                    WHERE bound_email_id = m.id AND bound_email_id IS NOT NULL AND id != ?
                 )
-                {where_clause.replace('?', '?')}
+                {where_clause}
                 ORDER BY m.email ASC 
                 LIMIT ? OFFSET ?
             """
@@ -5463,10 +5472,10 @@ def api_admin_card_available_emails(card_id):
             count_sql = f"""
                 SELECT COUNT(*) as count 
                 FROM mail_accounts m
-                WHERE m.id NOT IN (
-                    SELECT bound_email_id 
+                WHERE NOT EXISTS (
+                    SELECT 1
                     FROM cards 
-                    WHERE bound_email_id IS NOT NULL AND id != {placeholder}
+                    WHERE bound_email_id = m.id AND bound_email_id IS NOT NULL AND id != {placeholder}
                 )
                 {where_mysql}
             """
@@ -5478,10 +5487,10 @@ def api_admin_card_available_emails(card_id):
                 SELECT m.id, m.email, m.server, m.port, m.protocol, m.ssl, 
                        m.send_server, m.send_port, m.remarks, m.status
                 FROM mail_accounts m
-                WHERE m.id NOT IN (
-                    SELECT bound_email_id 
+                WHERE NOT EXISTS (
+                    SELECT 1
                     FROM cards 
-                    WHERE bound_email_id IS NOT NULL AND id != {placeholder}
+                    WHERE bound_email_id = m.id AND bound_email_id IS NOT NULL AND id != {placeholder}
                 )
                 {where_mysql}
                 ORDER BY m.email ASC 
