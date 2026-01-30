@@ -2517,6 +2517,12 @@ def api_admin_mailbox():
         fast_mode = request.args.get('fast', '') == '1'
         select_columns = FAST_MAILBOX_COLUMNS if fast_mode else "*"
         
+        # Validate pagination parameters
+        if page < 1:
+            page = 1
+        if per_page < 1 or per_page > 1000:
+            per_page = 30
+        
         offset = (page - 1) * per_page
         
         # 构建查询条件
@@ -2527,13 +2533,11 @@ def api_admin_mailbox():
             search_param = f"%{search}%"
             params = [search_param, search_param, search_param]
         
-        # 获取总数
+        # 获取总数 - Always get count for proper pagination UI
         if db_type == 'sqlite':
-            total = None
-            if not fast_mode:
-                count_sql = f"SELECT COUNT(*) as count FROM mail_accounts {where_clause}"
-                count_result = db.execute(count_sql, params).fetchone()
-                total = count_result['count']
+            count_sql = f"SELECT COUNT(*) as count FROM mail_accounts {where_clause}"
+            count_result = db.execute(count_sql, params).fetchone()
+            total = count_result['count']
             
             # 获取分页数据 - 按ID排序确保ID稳定显示
             sql = f"""
@@ -2548,18 +2552,18 @@ def api_admin_mailbox():
             
             where_mysql = where_clause.replace('?', placeholder) if where_clause else ""
             
-            total = None
-            if not fast_mode:
-                count_sql = f"SELECT COUNT(*) as count FROM mail_accounts {where_mysql}"
-                cursor.execute(count_sql, params)
-                total = cursor.fetchone()['count'] if db_type == 'postgresql' else cursor.fetchone()[0]
+            # Always get count for proper pagination
+            count_sql = f"SELECT COUNT(*) as count FROM mail_accounts {where_mysql}"
+            cursor.execute(count_sql, params)
+            total = cursor.fetchone()['count'] if db_type == 'postgresql' else cursor.fetchone()[0]
             
+            # Use parameterized query for LIMIT/OFFSET
             sql = f"""
                 SELECT {select_columns} FROM mail_accounts {where_mysql}
                 ORDER BY id ASC 
-                LIMIT {per_page} OFFSET {offset}
+                LIMIT %s OFFSET %s
             """
-            cursor.execute(sql, params)
+            cursor.execute(sql, params + [per_page, offset])
             accounts = cursor.fetchall()
         
         return jsonify({
