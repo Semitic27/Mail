@@ -1332,10 +1332,11 @@
             if (page !== null) currentPage = page;
             if (search !== null) searchQuery = search;
             
-            // Load proxies with pagination for better performance (reduced from 1000 to 100)
+            // Load both HTTP and SOCKS5 proxies with reduced per_page for better performance
+            // Note: Client-side pagination is used after merging both types
             const [httpResponse, socks5Response] = await Promise.all([
-                fetch(`/admin/api/proxies/http?page=${currentPage}&per_page=100&search=${searchQuery}`),
-                fetch(`/admin/api/proxies/socks5?page=${currentPage}&per_page=100&search=${searchQuery}`)
+                fetch(`/admin/api/proxies/http?page=1&per_page=100&search=${searchQuery}`),
+                fetch(`/admin/api/proxies/socks5?page=1&per_page=100&search=${searchQuery}`)
             ]);
             
             const httpData = await httpResponse.json();

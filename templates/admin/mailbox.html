@@ -1923,13 +1923,13 @@
                 mailboxData = data.data || [];
                 await refreshMailboxGroupMappings();
                 rebuildMailboxGroupMapFromMappings();
-                renderMailboxView(1); // Start from page 1 after load
+                renderMailboxView(page); // Use the actual page parameter
                 
                 // Update pagination with server-side totals
                 if (data.pagination && data.pagination.total !== null) {
                     const totalCount = data.pagination.total;
                     totalPages = data.pagination.pages || Math.ceil(totalCount / perPage);
-                    renderPaginationManual(totalCount, 1);
+                    renderPaginationManual(totalCount, page); // Use the actual page parameter
                 }
             } else {
                 showToast('加载邮箱列表失败', 'error');
@@ -1989,7 +1989,8 @@
             return;
         }
         
-        // Apply group filtering on current page data
+        // Note: With server-side pagination, group filtering only applies to the current page
+        // For large datasets, consider implementing server-side group filtering
         const filteredByGroup = mailboxData.filter(mailbox => {
             const groupId = mailboxGroupMap[mailbox.id] ?? mailboxGroupMap[mailbox.email];
             if (selectedGroupId === ROOT_GROUP_ID) return true;
@@ -2003,7 +2004,7 @@
         if (selectAll) selectAll.checked = false;
 
         renderMailboxTable(filteredByGroup);
-        // Note: pagination is updated by loadMailboxes with server totals
+        // Note: pagination info shows total mailboxes, not filtered count
     }
 
     // 渲染分页
