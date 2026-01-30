@@ -1902,9 +1902,10 @@
             currentPage = page;
             searchQuery = search;
             
+            // Use server-side pagination - load only what we need per page
             const params = new URLSearchParams({
-                page: 1,
-                per_page: 1000,
+                page: page,
+                per_page: perPage,
                 search: search,
                 fast: '1'
             });
@@ -1920,6 +1921,10 @@
             
             if (data.success) {
                 mailboxData = data.data || [];
+                // Update total pages from server response
+                if (data.pagination && data.pagination.total !== null) {
+                    totalPages = data.pagination.pages || 1;
+                }
                 await refreshMailboxGroupMappings();
                 rebuildMailboxGroupMapFromMappings();
                 renderMailboxView(page);
@@ -1975,6 +1980,7 @@
     }
     
     function renderMailboxView(page = 1) {
+        // Filter by group on client side (data already paginated from server)
         const filteredByGroup = mailboxData.filter(mailbox => {
             const groupId = mailboxGroupMap[mailbox.id] ?? mailboxGroupMap[mailbox.email];
             if (selectedGroupId === ROOT_GROUP_ID) return true;
@@ -1987,27 +1993,28 @@
         const selectAll = document.getElementById('selectAll');
         if (selectAll) selectAll.checked = false;
 
-        const safePage = Math.max(1, Math.min(page, Math.max(1, Math.ceil(filteredByGroup.length / perPage))));
-        const start = (safePage - 1) * perPage;
-        const pageData = filteredByGroup.slice(start, start + perPage);
-        currentPage = safePage;
-        renderMailboxTable(pageData);
-        renderPaginationManual(filteredByGroup.length, safePage);
+        // Since data is already paginated from server, render all filtered items
+        currentPage = page;
+        renderMailboxTable(filteredByGroup);
+        renderPaginationManual(filteredByGroup.length, page);
     }
 
     // 渲染分页
     function renderPaginationManual(totalCount, page) {
         const container = document.getElementById('paginationContainer');
-        totalPages = Math.max(1, Math.ceil(totalCount / perPage));
+        // For server-side pagination, show message if group filtering hides items
+        const isGroupFiltered = selectedGroupId !== ROOT_GROUP_ID;
+        const displayMessage = isGroupFiltered ? 
+            `当前分组显示 ${totalCount} 条记录` : 
+            `共 ${totalCount} 条记录`;
         
-        let html = `<div class="pagination-info">共 ${totalCount} 条记录，第 ${page} 页，共 ${totalPages} 页</div>`;
+        let html = `<div class="pagination-info">${displayMessage}，第 ${page} 页，共 ${totalPages} 页</div>`;
         html += `<div class="page-size-control">
             <label for="perPageSelect">每页</label>
             <select id="perPageSelect" onchange="changePerPage()">
                 <option value="30" ${perPage === 30 ? 'selected' : ''}>30条</option>
-                <option value="60" ${perPage === 60 ? 'selected' : ''}>60条</option>
+                <option value="50" ${perPage === 50 ? 'selected' : ''}>50条</option>
                 <option value="100" ${perPage === 100 ? 'selected' : ''}>100条</option>
-                <option value="150" ${perPage === 150 ? 'selected' : ''}>150条</option>
             </select>
         </div>`;
         
@@ -2016,7 +2023,7 @@
             
             // 上一页
             if (page > 1) {
-                html += `<button class="page-btn" onclick="renderMailboxView(${page - 1})">« 上一页</button>`;
+                html += `<button class="page-btn" onclick="loadMailboxes(${page - 1}, searchQuery)">« 上一页</button>`;
             }
             
             // 页码按钮
@@ -2024,7 +2031,7 @@
             let endPage = Math.min(totalPages, page + 2);
             
             if (startPage > 1) {
-                html += `<button class="page-btn" onclick="renderMailboxView(1)">1</button>`;
+                html += `<button class="page-btn" onclick="loadMailboxes(1, searchQuery)">1</button>`;
                 if (startPage > 2) {
                     html += '<span class="page-btn" style="border: none; cursor: default;">...</span>';
                 }
@@ -2032,19 +2039,19 @@
             
             for (let i = startPage; i <= endPage; i++) {
                 const activeClass = i === page ? 'active' : '';
-                html += `<button class="page-btn ${activeClass}" onclick="renderMailboxView(${i})">${i}</button>`;
+                html += `<button class="page-btn ${activeClass}" onclick="loadMailboxes(${i}, searchQuery)">${i}</button>`;
             }
             
             if (endPage < totalPages) {
                 if (endPage < totalPages - 1) {
                     html += '<span class="page-btn" style="border: none; cursor: default;">...</span>';
                 }
-                html += `<button class="page-btn" onclick="renderMailboxView(${totalPages})">${totalPages}</button>`;
+                html += `<button class="page-btn" onclick="loadMailboxes(${totalPages}, searchQuery)">${totalPages}</button>`;
             }
             
             // 下一页
             if (page < totalPages) {
-                html += `<button class="page-btn" onclick="renderMailboxView(${page + 1})">下一页 »</button>`;
+                html += `<button class="page-btn" onclick="loadMailboxes(${page + 1}, searchQuery)">下一页 »</button>`;
             }
             
             html += '</div>';
@@ -2639,16 +2646,28 @@
         loadMailboxes(1, '');
     }
     
-    // 搜索邮箱
+    // 搜索防抖
+    let searchDebounceTimer = null;
+    
+    // 搜索邮箱（带防抖）
     function searchMailboxes() {
         const search = document.getElementById('searchInput').value.trim();
-        loadMailboxes(1, search);
+        
+        // 清除之前的定时器
+        if (searchDebounceTimer) {
+            clearTimeout(searchDebounceTimer);
+        }
+        
+        // 设置新的定时器，300ms 后执行搜索
+        searchDebounceTimer = setTimeout(() => {
+            loadMailboxes(1, search);
+        }, 300);
     }
     
     // 改变每页显示数量
     function changePerPage() {
         perPage = parseInt(document.getElementById('perPageSelect').value, 10);
-        renderMailboxView(1);
+        loadMailboxes(1, searchQuery); // Reload from server with new per_page value
     }
 
     function loadReceiveStore() {
