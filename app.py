@@ -1092,15 +1092,44 @@ def migrate_remove_email_unique_constraint(db, db_type):
         logger.error(f"Error during email UNIQUE constraint migration: {e}")
 
 def ensure_mail_account_indexes(db, db_type):
-    """为mail_accounts表创建性能相关索引（主要针对SQLite大数据量场景）"""
-    if db_type != 'sqlite':
-        # 其他数据库（MySQL/PostgreSQL）通常通过迁移或显式DDL管理索引，保持不变
-        return
+    """为mail_accounts表创建性能相关索引（支持所有数据库，针对大数据量场景优化）"""
     try:
-        db.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_created_at ON mail_accounts(created_at)')
-        db.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_email_created ON mail_accounts(email, created_at)')
+        if db_type == 'sqlite':
+            # SQLite索引
+            db.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_created_at ON mail_accounts(created_at)')
+            db.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_email_created ON mail_accounts(email, created_at)')
+            # 新增：优化卡密绑定邮箱查询
+            db.execute('CREATE INDEX IF NOT EXISTS idx_cards_bound_email_id ON cards(bound_email_id)')
+            # 新增：优化状态筛选
+            db.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_status_id ON mail_accounts(status, id)')
+            logger.info("SQLite performance indexes created successfully")
+        elif db_type == 'mysql':
+            cursor = db.cursor()
+            # MySQL索引（使用IF NOT EXISTS语法或忽略错误）
+            indexes = [
+                ('idx_mail_accounts_created_at', 'mail_accounts', 'created_at'),
+                ('idx_mail_accounts_email_created', 'mail_accounts', 'email, created_at'),
+                ('idx_cards_bound_email_id', 'cards', 'bound_email_id'),
+                ('idx_mail_accounts_status_id', 'mail_accounts', 'status, id'),
+            ]
+            for idx_name, table_name, columns in indexes:
+                try:
+                    cursor.execute(f'CREATE INDEX {idx_name} ON {table_name}({columns})')
+                except Exception as e:
+                    # 索引已存在时忽略错误
+                    if 'Duplicate key name' not in str(e) and 'already exists' not in str(e):
+                        logger.warning(f"Failed to create index {idx_name}: {e}")
+            logger.info("MySQL performance indexes created successfully")
+        elif db_type == 'postgresql':
+            cursor = db.cursor()
+            # PostgreSQL索引（使用CREATE INDEX IF NOT EXISTS）
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_created_at ON mail_accounts(created_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_email_created ON mail_accounts(email, created_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_cards_bound_email_id ON cards(bound_email_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_status_id ON mail_accounts(status, id)')
+            logger.info("PostgreSQL performance indexes created successfully")
     except Exception as e:
-        logger.warning(f"Failed to ensure mail_accounts indexes: {e}")
+        logger.warning(f"Failed to ensure performance indexes: {e}")
 
 def migrate_server_addresses_table(db, db_type):
     """迁移server_addresses表，添加发件服务器相关字段"""
@@ -5340,50 +5369,116 @@ def _bind_email_to_card(db, data):
 @app.route('/admin/api/cards/<int:card_id>/available-emails', methods=['GET'])
 @admin_required
 def api_admin_card_available_emails(card_id):
-    """获取指定卡密可绑定的邮箱列表（排除已绑定的邮箱）"""
+    """获取指定卡密可绑定的邮箱列表（排除已绑定的邮箱）- 优化版：使用数据库端过滤"""
     db = get_db()
     db_type = app.config['DATABASE_TYPE']
     
     try:
-        # 获取所有邮箱
-        if db_type == 'sqlite':
-            all_emails = db.execute('SELECT * FROM mail_accounts ORDER BY email ASC').fetchall()
-        else:
-            cursor = db.cursor()
-            cursor.execute('SELECT * FROM mail_accounts ORDER BY email ASC')
-            all_emails = cursor.fetchall()
+        # 支持分页和搜索（优化大数据量场景）
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 100))
+        search = request.args.get('search', '').strip()
         
-        # 获取已绑定的邮箱ID（排除当前卡密）
-        if db_type == 'sqlite':
-            bound_email_ids = db.execute('''
-                SELECT DISTINCT bound_email_id 
-                FROM cards 
-                WHERE bound_email_id IS NOT NULL AND id != ?
-            ''', (card_id,)).fetchall()
-            bound_ids = [row['bound_email_id'] for row in bound_email_ids]
-        else:
-            cursor = db.cursor()
-            cursor.execute('''
-                SELECT DISTINCT bound_email_id 
-                FROM cards 
-                WHERE bound_email_id IS NOT NULL AND id != %s
-            ''', (card_id,))
-            bound_email_ids = cursor.fetchall()
-            bound_ids = [row[0] for row in bound_email_ids]
+        offset = (page - 1) * per_page
         
-        # 过滤掉已绑定的邮箱
-        available_emails = []
-        for email in all_emails:
-            email_id = email['id'] if db_type == 'sqlite' else email[0]
-            if email_id not in bound_ids:
-                available_emails.append(dict(email) if db_type == 'sqlite' else dict(zip([desc[0] for desc in cursor.description], email)))
+        # 构建搜索条件
+        search_clause = ""
+        search_params = []
+        if search:
+            search_clause = "AND (ma.email LIKE ? OR ma.server LIKE ? OR ma.remarks LIKE ?)"
+            search_param = f"%{search}%"
+            search_params = [search_param, search_param, search_param]
+        
+        # 使用数据库端查询，直接过滤掉已绑定的邮箱（高性能）
+        if db_type == 'sqlite':
+            # SQLite：使用NOT IN子查询，只选择必要的字段
+            sql = f'''
+                SELECT id, email, server, port, protocol, ssl, remarks, status
+                FROM mail_accounts ma
+                WHERE ma.id NOT IN (
+                    SELECT DISTINCT bound_email_id 
+                    FROM cards 
+                    WHERE bound_email_id IS NOT NULL AND id != ?
+                )
+                {search_clause}
+                ORDER BY email ASC
+                LIMIT ? OFFSET ?
+            '''
+            params = [card_id] + search_params + [per_page, offset]
+            available_emails = db.execute(sql, params).fetchall()
+            
+            # 获取总数（用于分页）
+            count_sql = f'''
+                SELECT COUNT(*) as count
+                FROM mail_accounts ma
+                WHERE ma.id NOT IN (
+                    SELECT DISTINCT bound_email_id 
+                    FROM cards 
+                    WHERE bound_email_id IS NOT NULL AND id != ?
+                )
+                {search_clause}
+            '''
+            count_params = [card_id] + search_params
+            total = db.execute(count_sql, count_params).fetchone()['count']
+            
+            available_emails = [dict(email) for email in available_emails]
+            
+        else:
+            # MySQL/PostgreSQL
+            cursor = db.cursor()
+            placeholder = '%s'
+            search_clause_mysql = search_clause.replace('?', placeholder) if search_clause else ""
+            
+            sql = f'''
+                SELECT id, email, server, port, protocol, ssl, remarks, status
+                FROM mail_accounts ma
+                WHERE ma.id NOT IN (
+                    SELECT DISTINCT bound_email_id 
+                    FROM cards 
+                    WHERE bound_email_id IS NOT NULL AND id != {placeholder}
+                )
+                {search_clause_mysql}
+                ORDER BY email ASC
+                LIMIT {per_page} OFFSET {offset}
+            '''
+            params = [card_id] + search_params
+            cursor.execute(sql, params)
+            rows = cursor.fetchall()
+            
+            # 获取总数
+            count_sql = f'''
+                SELECT COUNT(*) as count
+                FROM mail_accounts ma
+                WHERE ma.id NOT IN (
+                    SELECT DISTINCT bound_email_id 
+                    FROM cards 
+                    WHERE bound_email_id IS NOT NULL AND id != {placeholder}
+                )
+                {search_clause_mysql}
+            '''
+            cursor.execute(count_sql, [card_id] + search_params)
+            total = cursor.fetchone()[0]
+            
+            # 转换为字典列表
+            if rows:
+                columns = [desc[0] for desc in cursor.description]
+                available_emails = [dict(zip(columns, row)) for row in rows]
+            else:
+                available_emails = []
         
         return jsonify({
             'success': True,
-            'data': available_emails
+            'data': available_emails,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': total,
+                'pages': (total + per_page - 1) // per_page if total > 0 else 0
+            }
         })
         
     except Exception as e:
+        logger.error(f'Failed to get available emails for card {card_id}: {e}')
         return jsonify({
             'success': False,
             'message': f'获取可绑定邮箱列表失败: {str(e)}'
