@@ -514,6 +514,9 @@ def init_db():
             # 针对大量邮箱数据的索引优化
             ensure_mail_account_indexes(db, db_type)
             
+            # 创建额外的性能优化索引
+            ensure_performance_indexes(db, db_type)
+            
             # 检查是否有默认管理员，如果没有则创建
             create_default_admin(db, db_type)
             
@@ -1101,6 +1104,64 @@ def ensure_mail_account_indexes(db, db_type):
         db.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_email_created ON mail_accounts(email, created_at)')
     except Exception as e:
         logger.warning(f"Failed to ensure mail_accounts indexes: {e}")
+
+def ensure_performance_indexes(db, db_type):
+    """创建额外的性能优化索引以支持大数据量快速查询"""
+    try:
+        if db_type == 'sqlite':
+            # 为mail_accounts添加复合索引以优化搜索
+            db.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_search ON mail_accounts(email, server, remarks)')
+            # 为cards添加复合索引以优化搜索和过滤
+            db.execute('CREATE INDEX IF NOT EXISTS idx_cards_search ON cards(card_key, remarks, status)')
+            db.execute('CREATE INDEX IF NOT EXISTS idx_cards_bound_email ON cards(bound_email_id)')
+            # 为proxies添加复合索引以优化搜索
+            db.execute('CREATE INDEX IF NOT EXISTS idx_http_proxies_search ON http_proxies(name, host, remarks)')
+            db.execute('CREATE INDEX IF NOT EXISTS idx_socks5_proxies_search ON socks5_proxies(name, host, remarks)')
+            logger.info("Performance indexes created successfully")
+        elif db_type == 'mysql':
+            cursor = db.cursor()
+            # 检查并创建索引 - MySQL
+            indexes = [
+                ('idx_mail_accounts_search', 'mail_accounts', ['email', 'server', 'remarks']),
+                ('idx_cards_search', 'cards', ['card_key', 'remarks', 'status']),
+                ('idx_cards_bound_email', 'cards', ['bound_email_id']),
+                ('idx_http_proxies_search', 'http_proxies', ['name', 'host', 'remarks']),
+                ('idx_socks5_proxies_search', 'socks5_proxies', ['name', 'host', 'remarks'])
+            ]
+            for idx_name, table_name, columns in indexes:
+                try:
+                    # 检查索引是否存在
+                    cursor.execute(f"SHOW INDEX FROM {table_name} WHERE Key_name = '{idx_name}'")
+                    if not cursor.fetchone():
+                        cols_str = ', '.join(columns)
+                        cursor.execute(f'CREATE INDEX {idx_name} ON {table_name}({cols_str})')
+                        logger.info(f"Created index {idx_name} on {table_name}")
+                except Exception as e:
+                    logger.warning(f"Failed to create index {idx_name}: {e}")
+        elif db_type == 'postgresql':
+            cursor = db.cursor()
+            # PostgreSQL索引创建
+            indexes = [
+                ('idx_mail_accounts_search', 'mail_accounts', ['email', 'server', 'remarks']),
+                ('idx_cards_search', 'cards', ['card_key', 'remarks', 'status']),
+                ('idx_cards_bound_email', 'cards', ['bound_email_id']),
+                ('idx_http_proxies_search', 'http_proxies', ['name', 'host', 'remarks']),
+                ('idx_socks5_proxies_search', 'socks5_proxies', ['name', 'host', 'remarks'])
+            ]
+            for idx_name, table_name, columns in indexes:
+                try:
+                    # 检查索引是否存在
+                    cursor.execute(f"SELECT indexname FROM pg_indexes WHERE tablename = '{table_name}' AND indexname = '{idx_name}'")
+                    if not cursor.fetchone():
+                        cols_str = ', '.join(columns)
+                        cursor.execute(f'CREATE INDEX IF NOT EXISTS {idx_name} ON {table_name}({cols_str})')
+                        logger.info(f"Created index {idx_name} on {table_name}")
+                except Exception as e:
+                    logger.warning(f"Failed to create index {idx_name}: {e}")
+        db.commit()
+    except Exception as e:
+        logger.error(f"Error creating performance indexes: {e}")
+
 
 def migrate_server_addresses_table(db, db_type):
     """迁移server_addresses表，添加发件服务器相关字段"""
@@ -5340,50 +5401,110 @@ def _bind_email_to_card(db, data):
 @app.route('/admin/api/cards/<int:card_id>/available-emails', methods=['GET'])
 @admin_required
 def api_admin_card_available_emails(card_id):
-    """获取指定卡密可绑定的邮箱列表（排除已绑定的邮箱）"""
+    """获取指定卡密可绑定的邮箱列表（排除已绑定的邮箱）- 支持分页和搜索"""
     db = get_db()
     db_type = app.config['DATABASE_TYPE']
     
     try:
-        # 获取所有邮箱
+        # 获取分页和搜索参数
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 50))
+        search = request.args.get('search', '').strip()
+        
+        offset = (page - 1) * per_page
+        
+        # 构建查询条件 - 使用子查询优化，直接在SQL中排除已绑定的邮箱
+        where_clause = ""
+        params = [card_id]
+        
+        if search:
+            where_clause = "AND (m.email LIKE ? OR m.server LIKE ? OR m.remarks LIKE ?)"
+            search_param = f"%{search}%"
+            params.extend([search_param, search_param, search_param])
+        
+        # 使用优化的查询 - 直接在SQL中排除已绑定邮箱，避免在Python中过滤
         if db_type == 'sqlite':
-            all_emails = db.execute('SELECT * FROM mail_accounts ORDER BY email ASC').fetchall()
+            # 获取总数
+            count_sql = f"""
+                SELECT COUNT(*) as count 
+                FROM mail_accounts m
+                WHERE m.id NOT IN (
+                    SELECT bound_email_id 
+                    FROM cards 
+                    WHERE bound_email_id IS NOT NULL AND id != ?
+                )
+                {where_clause.replace('?', '?')}
+            """
+            count_result = db.execute(count_sql, params).fetchone()
+            total = count_result['count']
+            
+            # 获取分页数据
+            sql = f"""
+                SELECT m.id, m.email, m.server, m.port, m.protocol, m.ssl, 
+                       m.send_server, m.send_port, m.remarks, m.status
+                FROM mail_accounts m
+                WHERE m.id NOT IN (
+                    SELECT bound_email_id 
+                    FROM cards 
+                    WHERE bound_email_id IS NOT NULL AND id != ?
+                )
+                {where_clause.replace('?', '?')}
+                ORDER BY m.email ASC 
+                LIMIT ? OFFSET ?
+            """
+            available_emails = db.execute(sql, params + [per_page, offset]).fetchall()
+            available_emails = [dict(email) for email in available_emails]
         else:
             cursor = db.cursor()
-            cursor.execute('SELECT * FROM mail_accounts ORDER BY email ASC')
-            all_emails = cursor.fetchall()
-        
-        # 获取已绑定的邮箱ID（排除当前卡密）
-        if db_type == 'sqlite':
-            bound_email_ids = db.execute('''
-                SELECT DISTINCT bound_email_id 
-                FROM cards 
-                WHERE bound_email_id IS NOT NULL AND id != ?
-            ''', (card_id,)).fetchall()
-            bound_ids = [row['bound_email_id'] for row in bound_email_ids]
-        else:
-            cursor = db.cursor()
-            cursor.execute('''
-                SELECT DISTINCT bound_email_id 
-                FROM cards 
-                WHERE bound_email_id IS NOT NULL AND id != %s
-            ''', (card_id,))
-            bound_email_ids = cursor.fetchall()
-            bound_ids = [row[0] for row in bound_email_ids]
-        
-        # 过滤掉已绑定的邮箱
-        available_emails = []
-        for email in all_emails:
-            email_id = email['id'] if db_type == 'sqlite' else email[0]
-            if email_id not in bound_ids:
-                available_emails.append(dict(email) if db_type == 'sqlite' else dict(zip([desc[0] for desc in cursor.description], email)))
+            placeholder = '%s'
+            where_mysql = where_clause.replace('?', placeholder) if where_clause else ""
+            
+            # 获取总数
+            count_sql = f"""
+                SELECT COUNT(*) as count 
+                FROM mail_accounts m
+                WHERE m.id NOT IN (
+                    SELECT bound_email_id 
+                    FROM cards 
+                    WHERE bound_email_id IS NOT NULL AND id != {placeholder}
+                )
+                {where_mysql}
+            """
+            cursor.execute(count_sql, params)
+            total = cursor.fetchone()[0]
+            
+            # 获取分页数据
+            sql = f"""
+                SELECT m.id, m.email, m.server, m.port, m.protocol, m.ssl, 
+                       m.send_server, m.send_port, m.remarks, m.status
+                FROM mail_accounts m
+                WHERE m.id NOT IN (
+                    SELECT bound_email_id 
+                    FROM cards 
+                    WHERE bound_email_id IS NOT NULL AND id != {placeholder}
+                )
+                {where_mysql}
+                ORDER BY m.email ASC 
+                LIMIT {per_page} OFFSET {offset}
+            """
+            cursor.execute(sql, params)
+            results = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+            available_emails = [dict(zip(columns, row)) for row in results]
         
         return jsonify({
             'success': True,
-            'data': available_emails
+            'data': available_emails,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': total,
+                'pages': (total + per_page - 1) // per_page
+            }
         })
         
     except Exception as e:
+        logger.error(f'获取可绑定邮箱列表失败: {e}')
         return jsonify({
             'success': False,
             'message': f'获取可绑定邮箱列表失败: {str(e)}'

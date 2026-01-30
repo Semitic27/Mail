@@ -2368,14 +2368,14 @@
         showToast('API页面已打开，链接已复制到剪贴板', 'success');
     }
 
-    // 加载邮箱列表（用于绑定）- 更新为只获取未绑定的邮箱
+    // 加载邮箱列表（用于绑定）- 更新为只获取未绑定的邮箱，支持分页
     function loadEmailList(callback) {
         // 对于编辑模式，需要获取当前卡密可绑定的邮箱
         const cardId = document.getElementById('editCardId').value;
         
         if (cardId) {
-            // 编辑模式：获取可绑定的邮箱
-            fetch(`/admin/api/cards/${cardId}/available-emails`)
+            // 编辑模式：获取可绑定的邮箱（分页加载前50条）
+            fetch(`/admin/api/cards/${cardId}/available-emails?per_page=50`)
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
@@ -2388,8 +2388,8 @@
                     if (callback) callback();
                 });
         } else {
-            // 添加模式：获取所有未绑定的邮箱
-            fetch('/admin/api/mailbox?per_page=100')
+            // 添加模式：获取所有未绑定的邮箱（分页加载前50条）
+            fetch('/admin/api/mailbox?per_page=50&fast=1')
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
@@ -2445,9 +2445,9 @@
     // 打开邮箱选择模态框
     async function openEmailSelectionModal() {
         try {
-            // 加载邮箱列表和分组
+            // 加载邮箱列表和分组 - 使用分页加载，只加载前100条用于快速展示
             const [mailboxResponse, groupsResponse] = await Promise.all([
-                fetch('/admin/api/mailbox?per_page=1000'),
+                fetch('/admin/api/mailbox?per_page=100&fast=1'),
                 fetch('/admin/api/mailbox-groups')
             ]);
             
