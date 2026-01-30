@@ -2517,6 +2517,12 @@ def api_admin_mailbox():
         fast_mode = request.args.get('fast', '') == '1'
         select_columns = FAST_MAILBOX_COLUMNS if fast_mode else "*"
         
+        # Validate pagination parameters
+        if page < 1:
+            page = 1
+        if per_page < 1 or per_page > 1000:
+            per_page = 30
+        
         offset = (page - 1) * per_page
         
         # 构建查询条件
@@ -2527,10 +2533,8 @@ def api_admin_mailbox():
             search_param = f"%{search}%"
             params = [search_param, search_param, search_param]
         
-        # 获取总数
+        # 获取总数 - Always get count for proper pagination UI
         if db_type == 'sqlite':
-            # Always get count for proper pagination, but skip in fast mode if search is empty
-            # This is a good compromise - count is needed for pagination UI
             count_sql = f"SELECT COUNT(*) as count FROM mail_accounts {where_clause}"
             count_result = db.execute(count_sql, params).fetchone()
             total = count_result['count']
@@ -2553,12 +2557,13 @@ def api_admin_mailbox():
             cursor.execute(count_sql, params)
             total = cursor.fetchone()['count'] if db_type == 'postgresql' else cursor.fetchone()[0]
             
+            # Use parameterized query for LIMIT/OFFSET
             sql = f"""
                 SELECT {select_columns} FROM mail_accounts {where_mysql}
                 ORDER BY id ASC 
-                LIMIT {per_page} OFFSET {offset}
+                LIMIT %s OFFSET %s
             """
-            cursor.execute(sql, params)
+            cursor.execute(sql, params + [per_page, offset])
             accounts = cursor.fetchall()
         
         return jsonify({

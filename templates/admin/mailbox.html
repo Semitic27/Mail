@@ -1904,8 +1904,9 @@
             
             // Show loading indicator
             const tbody = document.querySelector('#mailboxTable tbody');
+            const colCount = document.querySelectorAll('#mailboxTable thead th').length || 8;
+            
             if (tbody) {
-                const colCount = document.querySelectorAll('#mailboxTable thead th').length || 8;
                 tbody.innerHTML = `<tr><td colspan="${colCount}" style="text-align: center; color: #667eea; padding: 20px;">
                     <i class="fas fa-spinner fa-spin"></i> 加载中...
                 </td></tr>`;
@@ -1940,7 +1941,6 @@
             } else {
                 showToast('加载邮箱列表失败', 'error');
                 if (tbody) {
-                    const colCount = document.querySelectorAll('#mailboxTable thead th').length || 8;
                     tbody.innerHTML = `<tr><td colspan="${colCount}" style="text-align: center; color: #ef4444;">加载失败</td></tr>`;
                 }
             }
@@ -1948,8 +1948,8 @@
             console.error('加载邮箱列表失败:', error);
             showToast('网络错误，请稍后重试', 'error');
             const tbody = document.querySelector('#mailboxTable tbody');
+            const colCount = document.querySelectorAll('#mailboxTable thead th').length || 8;
             if (tbody) {
-                const colCount = document.querySelectorAll('#mailboxTable thead th').length || 8;
                 tbody.innerHTML = `<tr><td colspan="${colCount}" style="text-align: center; color: #ef4444;">网络错误</td></tr>`;
             }
         }
@@ -1998,6 +1998,13 @@
     }
     
     function renderMailboxView(page = 1) {
+        // NOTE: Group filtering with server-side pagination limitation
+        // When a group is selected, we apply client-side filtering to server-paginated data.
+        // This means only mailboxes from the current page are filtered, not all mailboxes.
+        // For large datasets, this is an acceptable tradeoff - users can use search or
+        // increase per_page to see more items. A full fix would require backend support
+        // for group_id filtering in the API endpoint.
+        
         // Filter by group on client side (data already paginated from server)
         const filteredByGroup = mailboxData.filter(mailbox => {
             const groupId = mailboxGroupMap[mailbox.id] ?? mailboxGroupMap[mailbox.email];
@@ -2036,12 +2043,15 @@
             </select>
         </div>`;
         
+        // Escape searchQuery for safe use in onclick handlers
+        const escapedSearch = searchQuery.replace(/'/g, "\\'").replace(/"/g, '\\"');
+        
         if (totalPages > 1) {
             html += '<div class="pagination-buttons">';
             
             // 上一页
             if (page > 1) {
-                html += `<button class="page-btn" onclick="loadMailboxes(${page - 1}, searchQuery)">« 上一页</button>`;
+                html += `<button class="page-btn" onclick="loadMailboxes(${page - 1}, '${escapedSearch}')">« 上一页</button>`;
             }
             
             // 页码按钮
@@ -2049,7 +2059,7 @@
             let endPage = Math.min(totalPages, page + 2);
             
             if (startPage > 1) {
-                html += `<button class="page-btn" onclick="loadMailboxes(1, searchQuery)">1</button>`;
+                html += `<button class="page-btn" onclick="loadMailboxes(1, '${escapedSearch}')">1</button>`;
                 if (startPage > 2) {
                     html += '<span class="page-btn" style="border: none; cursor: default;">...</span>';
                 }
@@ -2057,19 +2067,19 @@
             
             for (let i = startPage; i <= endPage; i++) {
                 const activeClass = i === page ? 'active' : '';
-                html += `<button class="page-btn ${activeClass}" onclick="loadMailboxes(${i}, searchQuery)">${i}</button>`;
+                html += `<button class="page-btn ${activeClass}" onclick="loadMailboxes(${i}, '${escapedSearch}')">${i}</button>`;
             }
             
             if (endPage < totalPages) {
                 if (endPage < totalPages - 1) {
                     html += '<span class="page-btn" style="border: none; cursor: default;">...</span>';
                 }
-                html += `<button class="page-btn" onclick="loadMailboxes(${totalPages}, searchQuery)">${totalPages}</button>`;
+                html += `<button class="page-btn" onclick="loadMailboxes(${totalPages}, '${escapedSearch}')">${totalPages}</button>`;
             }
             
             // 下一页
             if (page < totalPages) {
-                html += `<button class="page-btn" onclick="loadMailboxes(${page + 1}, searchQuery)">下一页 »</button>`;
+                html += `<button class="page-btn" onclick="loadMailboxes(${page + 1}, '${escapedSearch}')">下一页 »</button>`;
             }
             
             html += '</div>';
