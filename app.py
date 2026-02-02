@@ -4102,6 +4102,7 @@ def api_admin_proxies(proxy_type):
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 30))
         search = request.args.get('search', '').strip()
+        fast_mode = request.args.get('fast', '0') == '1'  # 快速模式，跳过总数统计
         
         offset = (page - 1) * per_page
         
@@ -4115,13 +4116,15 @@ def api_admin_proxies(proxy_type):
         
         # 获取总数和数据
         if db_type == 'sqlite':
-            count_sql = f"SELECT COUNT(*) as count FROM {table_name} {where_clause}"
-            count_result = db.execute(count_sql, params).fetchone()
-            total = count_result['count']
+            total = None
+            if not fast_mode:
+                count_sql = f"SELECT COUNT(*) as count FROM {table_name} {where_clause}"
+                count_result = db.execute(count_sql, params).fetchone()
+                total = count_result['count']
             
             sql = f"""
                 SELECT * FROM {table_name} {where_clause}
-                ORDER BY created_at DESC 
+                ORDER BY id ASC 
                 LIMIT ? OFFSET ?
             """
             proxies = db.execute(sql, params + [per_page, offset]).fetchall()
@@ -4130,13 +4133,15 @@ def api_admin_proxies(proxy_type):
             placeholder = '%s'
             where_mysql = where_clause.replace('?', placeholder) if where_clause else ""
             
-            count_sql = f"SELECT COUNT(*) as count FROM {table_name} {where_mysql}"
-            cursor.execute(count_sql, params)
-            total = cursor.fetchone()['count'] if db_type == 'postgresql' else cursor.fetchone()[0]
+            total = None
+            if not fast_mode:
+                count_sql = f"SELECT COUNT(*) as count FROM {table_name} {where_mysql}"
+                cursor.execute(count_sql, params)
+                total = cursor.fetchone()['count'] if db_type == 'postgresql' else cursor.fetchone()[0]
             
             sql = f"""
                 SELECT * FROM {table_name} {where_mysql}
-                ORDER BY created_at DESC 
+                ORDER BY id ASC 
                 LIMIT {per_page} OFFSET {offset}
             """
             cursor.execute(sql, params)
