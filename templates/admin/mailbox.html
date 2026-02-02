@@ -1904,7 +1904,7 @@
             
             const params = new URLSearchParams({
                 page: 1,
-                per_page: 100,  // 减少到100条以提升加载速度
+                per_page: 100000,  // 支持加载大量邮箱（最多10万个）
                 search: search,
                 fast: '1'
             });

@@ -2611,15 +2611,15 @@
             // 根据分组加载邮箱
             let mailboxes = [];
             if (groupId === 'ALL') {
-                // 加载所有邮箱 - 限制数量以提高性能
-                const response = await fetch('/admin/api/mailbox?per_page=100&fast=1');
+                // 加载所有邮箱 - 支持大量邮箱
+                const response = await fetch('/admin/api/mailbox?per_page=100000&fast=1');
                 const data = await response.json();
                 if (data.success) {
                     mailboxes = data.data;
                 }
             } else if (groupId === 'UNGROUPED') {
                 // 加载未分组邮箱
-                const response = await fetch('/admin/api/mailbox?per_page=100&fast=1');
+                const response = await fetch('/admin/api/mailbox?per_page=100000&fast=1');
                 const data = await response.json();
                 if (data.success) {
                     const groupedIds = new Set(allMailboxGroupMappings.map(m => m.mailbox_id));
@@ -2627,7 +2627,7 @@
                 }
             } else {
                 // 加载特定分组的邮箱
-                const response = await fetch(`/admin/api/mailbox?per_page=100&fast=1&group_id=${groupId}`);
+                const response = await fetch(`/admin/api/mailbox?per_page=100000&fast=1&group_id=${groupId}`);
                 const data = await response.json();
                 if (data.success) {
                     // 获取该分组及所有子分组的ID
