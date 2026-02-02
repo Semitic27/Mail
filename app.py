@@ -4124,7 +4124,7 @@ def api_admin_proxies(proxy_type):
             
             sql = f"""
                 SELECT * FROM {table_name} {where_clause}
-                ORDER BY id ASC 
+                ORDER BY id DESC 
                 LIMIT ? OFFSET ?
             """
             proxies = db.execute(sql, params + [per_page, offset]).fetchall()
@@ -4141,7 +4141,7 @@ def api_admin_proxies(proxy_type):
             
             sql = f"""
                 SELECT * FROM {table_name} {where_mysql}
-                ORDER BY id ASC 
+                ORDER BY id DESC 
                 LIMIT {per_page} OFFSET {offset}
             """
             cursor.execute(sql, params)
