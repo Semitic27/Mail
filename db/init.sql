@@ -156,7 +156,7 @@ INSERT OR IGNORE INTO system_config (config_key, config_value, config_type, desc
 ('system_name', '邮件查看系统', 'string', '系统名称', 1),
 ('system_title', '邮件查看系统', 'string', '系统页面标题', 0),
 ('system_version', '2.0.0', 'string', '系统版本', 1),
-('max_mail_accounts', '100', 'number', '最大邮箱账号数量', 0),
+('max_mail_accounts', '100000', 'number', '最大邮箱账号数量', 0),
 ('enable_proxy', '0', 'boolean', '启用代理功能', 0),
 ('enable_card_system', '1', 'boolean', '启用卡密系统', 0),
 ('mail_check_interval', '300', 'number', '邮件检查间隔（秒）', 0),
