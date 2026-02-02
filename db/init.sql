@@ -212,6 +212,18 @@ CREATE INDEX IF NOT EXISTS idx_cards_bound_email ON cards(bound_email_id);
 CREATE INDEX IF NOT EXISTS idx_http_proxies_search ON http_proxies(name, host, remarks);
 CREATE INDEX IF NOT EXISTS idx_socks5_proxies_search ON socks5_proxies(name, host, remarks);
 
+-- 高级性能优化索引（针对超大数据量场景）
+CREATE INDEX IF NOT EXISTS idx_card_logs_card_created ON card_logs(card_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mail_accounts_id_email ON mail_accounts(id, email);
+CREATE INDEX IF NOT EXISTS idx_mail_accounts_server_status ON mail_accounts(server, status);
+CREATE INDEX IF NOT EXISTS idx_cards_status_id ON cards(status, id);
+CREATE INDEX IF NOT EXISTS idx_cards_key_status ON cards(card_key, status);
+CREATE INDEX IF NOT EXISTS idx_http_proxies_status_id ON http_proxies(status, id);
+CREATE INDEX IF NOT EXISTS idx_socks5_proxies_status_id ON socks5_proxies(status, id);
+CREATE INDEX IF NOT EXISTS idx_http_proxies_name_host ON http_proxies(name, host);
+CREATE INDEX IF NOT EXISTS idx_socks5_proxies_name_host ON socks5_proxies(name, host);
+CREATE INDEX IF NOT EXISTS idx_mailbox_group_mappings_group_mailbox ON mailbox_group_mappings(group_id, mailbox_id);
+
 
 -- 邮箱分组管理表
 CREATE TABLE IF NOT EXISTS mailbox_groups (

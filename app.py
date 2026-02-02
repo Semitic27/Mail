@@ -1109,24 +1109,46 @@ def ensure_performance_indexes(db, db_type):
     """创建额外的性能优化索引以支持大数据量快速查询"""
     try:
         if db_type == 'sqlite':
-            # 为mail_accounts添加复合索引以优化搜索
+            # 基础复合索引
             db.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_search ON mail_accounts(email, server, remarks)')
-            # 为cards添加复合索引以优化搜索和过滤
             db.execute('CREATE INDEX IF NOT EXISTS idx_cards_search ON cards(card_key, remarks, status)')
             db.execute('CREATE INDEX IF NOT EXISTS idx_cards_bound_email ON cards(bound_email_id)')
-            # 为proxies添加复合索引以优化搜索
             db.execute('CREATE INDEX IF NOT EXISTS idx_http_proxies_search ON http_proxies(name, host, remarks)')
             db.execute('CREATE INDEX IF NOT EXISTS idx_socks5_proxies_search ON socks5_proxies(name, host, remarks)')
+            
+            # 高级性能优化索引（针对超大数据量场景）
+            db.execute('CREATE INDEX IF NOT EXISTS idx_card_logs_card_created ON card_logs(card_id, created_at DESC)')
+            db.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_id_email ON mail_accounts(id, email)')
+            db.execute('CREATE INDEX IF NOT EXISTS idx_mail_accounts_server_status ON mail_accounts(server, status)')
+            db.execute('CREATE INDEX IF NOT EXISTS idx_cards_status_id ON cards(status, id)')
+            db.execute('CREATE INDEX IF NOT EXISTS idx_cards_key_status ON cards(card_key, status)')
+            db.execute('CREATE INDEX IF NOT EXISTS idx_http_proxies_status_id ON http_proxies(status, id)')
+            db.execute('CREATE INDEX IF NOT EXISTS idx_socks5_proxies_status_id ON socks5_proxies(status, id)')
+            db.execute('CREATE INDEX IF NOT EXISTS idx_http_proxies_name_host ON http_proxies(name, host)')
+            db.execute('CREATE INDEX IF NOT EXISTS idx_socks5_proxies_name_host ON socks5_proxies(name, host)')
+            db.execute('CREATE INDEX IF NOT EXISTS idx_mailbox_group_mappings_group_mailbox ON mailbox_group_mappings(group_id, mailbox_id)')
+            
             logger.info("Performance indexes created successfully")
         elif db_type == 'mysql':
             cursor = db.cursor()
-            # 检查并创建索引 - MySQL
+            # 基础索引
             indexes = [
                 ('idx_mail_accounts_search', 'mail_accounts', ['email', 'server', 'remarks']),
                 ('idx_cards_search', 'cards', ['card_key', 'remarks', 'status']),
                 ('idx_cards_bound_email', 'cards', ['bound_email_id']),
                 ('idx_http_proxies_search', 'http_proxies', ['name', 'host', 'remarks']),
-                ('idx_socks5_proxies_search', 'socks5_proxies', ['name', 'host', 'remarks'])
+                ('idx_socks5_proxies_search', 'socks5_proxies', ['name', 'host', 'remarks']),
+                # 高级性能优化索引
+                ('idx_card_logs_card_created', 'card_logs', ['card_id', 'created_at']),
+                ('idx_mail_accounts_id_email', 'mail_accounts', ['id', 'email']),
+                ('idx_mail_accounts_server_status', 'mail_accounts', ['server', 'status']),
+                ('idx_cards_status_id', 'cards', ['status', 'id']),
+                ('idx_cards_key_status', 'cards', ['card_key', 'status']),
+                ('idx_http_proxies_status_id', 'http_proxies', ['status', 'id']),
+                ('idx_socks5_proxies_status_id', 'socks5_proxies', ['status', 'id']),
+                ('idx_http_proxies_name_host', 'http_proxies', ['name', 'host']),
+                ('idx_socks5_proxies_name_host', 'socks5_proxies', ['name', 'host']),
+                ('idx_mailbox_group_mappings_group_mailbox', 'mailbox_group_mappings', ['group_id', 'mailbox_id'])
             ]
             for idx_name, table_name, columns in indexes:
                 try:
@@ -1146,7 +1168,18 @@ def ensure_performance_indexes(db, db_type):
                 ('idx_cards_search', 'cards', ['card_key', 'remarks', 'status']),
                 ('idx_cards_bound_email', 'cards', ['bound_email_id']),
                 ('idx_http_proxies_search', 'http_proxies', ['name', 'host', 'remarks']),
-                ('idx_socks5_proxies_search', 'socks5_proxies', ['name', 'host', 'remarks'])
+                ('idx_socks5_proxies_search', 'socks5_proxies', ['name', 'host', 'remarks']),
+                # 高级性能优化索引
+                ('idx_card_logs_card_created', 'card_logs', ['card_id', 'created_at']),
+                ('idx_mail_accounts_id_email', 'mail_accounts', ['id', 'email']),
+                ('idx_mail_accounts_server_status', 'mail_accounts', ['server', 'status']),
+                ('idx_cards_status_id', 'cards', ['status', 'id']),
+                ('idx_cards_key_status', 'cards', ['card_key', 'status']),
+                ('idx_http_proxies_status_id', 'http_proxies', ['status', 'id']),
+                ('idx_socks5_proxies_status_id', 'socks5_proxies', ['status', 'id']),
+                ('idx_http_proxies_name_host', 'http_proxies', ['name', 'host']),
+                ('idx_socks5_proxies_name_host', 'socks5_proxies', ['name', 'host']),
+                ('idx_mailbox_group_mappings_group_mailbox', 'mailbox_group_mappings', ['group_id', 'mailbox_id'])
             ]
             for idx_name, table_name, columns in indexes:
                 try:
@@ -2686,6 +2719,87 @@ def api_admin_mailbox():
                 'success': False,
                 'message': f'删除失败: {str(e)}'
             })
+
+@app.route('/admin/api/mailbox/search', methods=['GET'])
+@admin_required
+def api_mailbox_search():
+    """邮箱搜索 API - 用于自动完成/选择器（性能优化版）"""
+    db = get_db()
+    db_type = app.config['DATABASE_TYPE']
+    
+    search = request.args.get('q', '').strip()
+    page = int(request.args.get('page', 1))
+    per_page = int(request.args.get('per_page', 20))
+    
+    if not search:
+        return jsonify({
+            'success': True,
+            'data': [],
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': 0,
+                'has_more': False
+            }
+        })
+    
+    offset = (page - 1) * per_page
+    
+    # 构建查询条件 - 使用索引优化的搜索
+    where_clause = "WHERE email LIKE ? OR server LIKE ? OR remarks LIKE ?"
+    search_param = f"%{search}%"
+    params = [search_param, search_param, search_param]
+    
+    try:
+        if db_type == 'sqlite':
+            # 获取总数（限制计数以提高性能）
+            count_sql = f"SELECT COUNT(*) as count FROM mail_accounts {where_clause}"
+            count_result = db.execute(count_sql, params).fetchone()
+            total = count_result['count']
+            
+            # 获取分页数据 - 只返回必要字段以提高性能
+            sql = f"""
+                SELECT id, email, server, remarks
+                FROM mail_accounts {where_clause}
+                ORDER BY id ASC 
+                LIMIT ? OFFSET ?
+            """
+            accounts = db.execute(sql, params + [per_page, offset]).fetchall()
+        else:
+            cursor = db.cursor()
+            placeholder = '%s'
+            where_mysql = where_clause.replace('?', placeholder)
+            
+            count_sql = f"SELECT COUNT(*) as count FROM mail_accounts {where_mysql}"
+            cursor.execute(count_sql, params)
+            total = cursor.fetchone()['count'] if db_type == 'postgresql' else cursor.fetchone()[0]
+            
+            sql = f"""
+                SELECT id, email, server, remarks
+                FROM mail_accounts {where_mysql}
+                ORDER BY id ASC 
+                LIMIT {per_page} OFFSET {offset}
+            """
+            cursor.execute(sql, params)
+            accounts = cursor.fetchall()
+        
+        return jsonify({
+            'success': True,
+            'data': [dict(account) for account in accounts],
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': total,
+                'has_more': (page * per_page) < total
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'搜索失败: {str(e)}'
+        })
+
 
 def _add_mailbox(db, data):
     """添加单个邮箱"""
@@ -4889,13 +5003,18 @@ def api_admin_cards():
             count_result = db.execute(count_sql, params).fetchone()
             total = count_result['count']
             
-            # 获取分页数据
+            # 获取分页数据 - 优化：使用 LEFT JOIN 代替子查询以提高性能
             sql = f"""
                 SELECT c.*, 
                     e.email as bound_email,
-                    (SELECT created_at FROM card_logs WHERE card_id = c.id ORDER BY created_at DESC LIMIT 1) as last_used_at
+                    cl.created_at as last_used_at
                 FROM cards c
                 LEFT JOIN mail_accounts e ON c.bound_email_id = e.id
+                LEFT JOIN (
+                    SELECT card_id, MAX(created_at) as created_at
+                    FROM card_logs
+                    GROUP BY card_id
+                ) cl ON c.id = cl.card_id
                 {where_clause.replace('card_key', 'c.card_key').replace('remarks', 'c.remarks') if where_clause else ''}
                 ORDER BY c.id ASC 
                 LIMIT ? OFFSET ?
@@ -4910,12 +5029,18 @@ def api_admin_cards():
             cursor.execute(count_sql, params)
             total = cursor.fetchone()[0]
             
+            # 获取分页数据 - 优化：使用 LEFT JOIN 代替子查询以提高性能
             sql = f"""
                 SELECT c.*, 
                     e.email as bound_email,
-                    (SELECT created_at FROM card_logs WHERE card_id = c.id ORDER BY created_at DESC LIMIT 1) as last_used_at
+                    cl.created_at as last_used_at
                 FROM cards c
                 LEFT JOIN mail_accounts e ON c.bound_email_id = e.id
+                LEFT JOIN (
+                    SELECT card_id, MAX(created_at) as created_at
+                    FROM card_logs
+                    GROUP BY card_id
+                ) cl ON c.id = cl.card_id
                 {where_mysql}
                 ORDER BY c.id ASC 
                 LIMIT {per_page} OFFSET {offset}
