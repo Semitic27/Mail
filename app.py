@@ -2311,7 +2311,7 @@ def api_admin_mailbox():
     if request.method == 'GET':
         # 获取邮箱列表（支持分页和搜索）
         page = int(request.args.get('page', 1))
-        per_page = int(request.args.get('per_page', 30))
+        per_page = min(int(request.args.get('per_page', 30)), 10000)  # 限制最大10000条/页
         search = request.args.get('search', '').strip()
         fast_mode = request.args.get('fast', '') == '1'
         select_columns = FAST_MAILBOX_COLUMNS if fast_mode else "*"
@@ -3564,7 +3564,7 @@ def api_admin_proxies(proxy_type):
     if request.method == 'GET':
         # 获取代理列表（支持分页和搜索）
         page = int(request.args.get('page', 1))
-        per_page = int(request.args.get('per_page', 30))
+        per_page = min(int(request.args.get('per_page', 30)), 10000)  # 限制最大10000条/页
         search = request.args.get('search', '').strip()
         
         offset = (page - 1) * per_page
@@ -4446,7 +4446,7 @@ def api_admin_cards():
     if request.method == 'GET':
         # 获取卡密列表（支持分页和搜索）
         page = int(request.args.get('page', 1))
-        per_page = int(request.args.get('per_page', 30))
+        per_page = min(int(request.args.get('per_page', 30)), 10000)  # 限制最大10000条/页
         search = request.args.get('search', '').strip()
         
         offset = (page - 1) * per_page
@@ -6189,7 +6189,7 @@ def api_admin_card_logs():
         retention_days = apply_card_log_retention(db, db_type)
         
         page = max(1, safe_int(request.args.get('page', 1), 1))
-        per_page = max(1, safe_int(request.args.get('per_page', 30), 30))
+        per_page = min(max(1, safe_int(request.args.get('per_page', 30), 30)), 10000)  # 限制最大10000条/页
         search = request.args.get('search', '').strip()
         offset = (page - 1) * per_page
         
