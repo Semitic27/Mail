@@ -2165,6 +2165,8 @@
     function recalculateGroupCounts() {
         // Recalculate counts for all groups based on current mailboxData and mailboxGroupMappings
         const groupedMailboxIds = new Set(mailboxGroupMappings.map(m => m.mailbox_id || m.mailboxId));
+        // Create a set of existing mailbox IDs to verify mappings reference existing mailboxes
+        const existingMailboxIds = new Set(mailboxData.map(m => m.id));
         
         // Update each group's count
         groups.forEach(group => {
@@ -2175,10 +2177,12 @@
                 // "未分组" shows count of mailboxes not in any group
                 group.mailboxCount = mailboxData.filter(m => !groupedMailboxIds.has(m.id)).length;
             } else {
-                // Custom groups: count mailboxes assigned to this group
-                const mailboxesInGroup = mailboxGroupMappings.filter(m => 
-                    (m.group_id || m.groupId) === group.id
-                );
+                // Custom groups: count mailboxes assigned to this group that still exist
+                const mailboxesInGroup = mailboxGroupMappings.filter(m => {
+                    const gid = m.group_id || m.groupId;
+                    const mid = m.mailbox_id || m.mailboxId;
+                    return gid === group.id && existingMailboxIds.has(mid);
+                });
                 group.mailboxCount = mailboxesInGroup.length;
             }
         });

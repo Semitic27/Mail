@@ -5976,8 +5976,10 @@ def api_admin_generate_card_api_page(card_key):
 </html>"""
             return error_content, 404, {'Content-Type': 'text/html; charset=utf-8'}
         
-        # 检查卡密是否已绑定邮箱
-        has_bound_email = card_result.get('bound_email_id') is not None
+        # 检查卡密是否已绑定邮箱且邮箱仍然存在
+        # bound_email_id might still have a value even if the mailbox was deleted
+        # So we need to check if the email field (from LEFT JOIN) is not None
+        has_bound_email = card_result.get('bound_email_id') is not None and card_result.get('email') is not None
         bound_email = card_result.get('email') if has_bound_email else None
         
         # 根据绑定状态生成不同的API页面内容
