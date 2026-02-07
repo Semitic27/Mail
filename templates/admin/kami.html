@@ -2445,15 +2445,33 @@
     // 打开邮箱选择模态框（优化版 - 按需加载）
     async function openEmailSelectionModal() {
         try {
-            // 只加载分组信息，不加载邮箱列表
-            // 邮箱列表将在搜索或选择分组时按需加载
-            const groupsResponse = await fetch('/admin/api/mailbox-groups');
-            const groupsData = await groupsResponse.json();
+            // Get the card ID from the edit form
+            const cardId = document.getElementById('editCardId').value;
+            if (!cardId) {
+                showToast('无法获取卡密信息', 'error');
+                return;
+            }
             
-            if (groupsData.success) {
-                allMailboxes = []; // 清空，将按需加载
+            // Load groups and available emails for this card
+            const [groupsResponse, availableEmailsResponse] = await Promise.all([
+                fetch('/admin/api/mailbox-groups'),
+                fetch(`/admin/api/cards/${cardId}/available-emails?per_page=100000`)
+            ]);
+            
+            const groupsData = await groupsResponse.json();
+            const availableEmailsData = await availableEmailsResponse.json();
+            
+            if (groupsData.success && availableEmailsData.success) {
+                // Store available emails only (excluding bound ones)
+                allMailboxes = availableEmailsData.data || [];
                 allMailboxGroups = groupsData.groups || [];
                 allMailboxGroupMappings = groupsData.mappings || [];
+                
+                // Filter mappings to only include available mailboxes
+                const availableMailboxIds = new Set(allMailboxes.map(m => m.id));
+                allMailboxGroupMappings = allMailboxGroupMappings.filter(m => 
+                    availableMailboxIds.has(m.mailbox_id)
+                );
                 
                 // 初始化所有分组为折叠状态
                 collapsedGroupsInModal = {};
@@ -2466,7 +2484,7 @@
                 
                 // 显示提示信息
                 const emailListContainer = document.getElementById('emailListContainer');
-                emailListContainer.innerHTML = '<div style="padding: 40px; text-align: center; color: #6b7280;"><div style="font-size: 16px; margin-bottom: 10px;">💡 性能优化提示</div><div>请使用搜索框搜索邮箱，或点击左侧分组查看邮箱列表</div><div style="margin-top: 10px; font-size: 14px;">这样可以在有大量邮箱时保持快速响应</div></div>';
+                emailListContainer.innerHTML = '<div style="padding: 40px; text-align: center; color: #6b7280;"><div style="font-size: 16px; margin-bottom: 10px;">💡 选择邮箱</div><div>请使用搜索框搜索邮箱，或点击左侧分组查看可用邮箱列表</div><div style="margin-top: 10px; font-size: 14px; color: #ef4444;">注意：已绑定到其他卡密的邮箱不会显示</div></div>';
             } else {
                 showToast('加载邮箱数据失败', 'error');
             }
@@ -2590,7 +2608,7 @@
         container.appendChild(groupWrapper);
     }
     
-    // 选择分组，显示该分组的邮箱 - 优化版（按需加载）
+    // 选择分组，显示该分组的邮箱 - 优化版（使用已加载的可用邮箱）
     async function selectGroupInModal(groupId) {
         selectedGroupIdInModal = groupId;
         
@@ -2608,43 +2626,31 @@
         container.innerHTML = '<div style="padding: 40px; text-align: center;"><div class="spinner"></div><div style="margin-top: 10px;">加载中...</div></div>';
         
         try {
-            // 根据分组加载邮箱
+            // 根据分组过滤邮箱（使用已加载的可用邮箱）
             let mailboxes = [];
             if (groupId === 'ALL') {
-                // 加载所有邮箱 - 支持大量邮箱
-                const response = await fetch('/admin/api/mailbox?per_page=100000&fast=1');
-                const data = await response.json();
-                if (data.success) {
-                    mailboxes = data.data;
-                }
+                // 显示所有可用邮箱
+                mailboxes = allMailboxes;
             } else if (groupId === 'UNGROUPED') {
-                // 加载未分组邮箱
-                const response = await fetch('/admin/api/mailbox?per_page=100000&fast=1');
-                const data = await response.json();
-                if (data.success) {
-                    const groupedIds = new Set(allMailboxGroupMappings.map(m => m.mailbox_id));
-                    mailboxes = data.data.filter(m => !groupedIds.has(m.id));
-                }
+                // 显示未分组的可用邮箱
+                const groupedIds = new Set(allMailboxGroupMappings.map(m => m.mailbox_id));
+                mailboxes = allMailboxes.filter(m => !groupedIds.has(m.id));
             } else {
-                // 加载特定分组的邮箱
-                const response = await fetch(`/admin/api/mailbox?per_page=100000&fast=1&group_id=${groupId}`);
-                const data = await response.json();
-                if (data.success) {
-                    // 获取该分组及所有子分组的ID
-                    function getAllSubGroupIds(gid) {
-                        const subGroups = allMailboxGroups.filter(g => g.parent_id === gid);
-                        let ids = [gid];
-                        subGroups.forEach(sg => {
-                            ids = ids.concat(getAllSubGroupIds(sg.id));
-                        });
-                        return ids;
-                    }
-                    const groupIds = getAllSubGroupIds(groupId);
-                    const mailboxIds = allMailboxGroupMappings
-                        .filter(m => groupIds.includes(m.group_id))
-                        .map(m => m.mailbox_id);
-                    mailboxes = data.data.filter(m => mailboxIds.includes(m.id));
+                // 显示特定分组的可用邮箱
+                // 获取该分组及所有子分组的ID
+                function getAllSubGroupIds(gid) {
+                    const subGroups = allMailboxGroups.filter(g => g.parent_id === gid);
+                    let ids = [gid];
+                    subGroups.forEach(sg => {
+                        ids = ids.concat(getAllSubGroupIds(sg.id));
+                    });
+                    return ids;
                 }
+                const groupIds = getAllSubGroupIds(groupId);
+                const mailboxIds = new Set(allMailboxGroupMappings
+                    .filter(m => groupIds.includes(m.group_id))
+                    .map(m => m.mailbox_id));
+                mailboxes = allMailboxes.filter(m => mailboxIds.has(m.id));
             }
             
             renderEmailList(mailboxes);
@@ -2744,7 +2750,7 @@
         filterEmailsInModal(); // 重新触发过滤，显示当前分组的所有邮箱
     }
     
-    // 过滤邮箱 - 优化版（使用服务器端搜索）
+    // 过滤邮箱 - 优化版（使用已加载的可用邮箱进行搜索）
     let searchTimeout;
     async function filterEmailsInModal() {
         const searchTerm = document.getElementById('emailSearchInput').value.trim();
@@ -2762,21 +2768,21 @@
             return;
         }
         
-        // 延迟搜索以避免频繁请求
+        // 延迟搜索以避免频繁操作
         searchTimeout = setTimeout(async () => {
             const container = document.getElementById('emailListContainer');
             container.innerHTML = '<div style="padding: 40px; text-align: center;"><div class="spinner"></div><div style="margin-top: 10px;">搜索中...</div></div>';
             
             try {
-                // 使用新的搜索API
-                const response = await fetch(`/admin/api/mailbox/search?q=${encodeURIComponent(searchTerm)}&per_page=50`);
-                const data = await response.json();
+                // 在已加载的可用邮箱中搜索
+                const searchLower = searchTerm.toLowerCase();
+                const filteredMailboxes = allMailboxes.filter(m => 
+                    m.email.toLowerCase().includes(searchLower) ||
+                    (m.server && m.server.toLowerCase().includes(searchLower)) ||
+                    (m.remarks && m.remarks.toLowerCase().includes(searchLower))
+                );
                 
-                if (data.success) {
-                    renderEmailList(data.data);
-                } else {
-                    container.innerHTML = '<div style="padding: 20px; text-align: center; color: #ef4444;">搜索失败，请重试</div>';
-                }
+                renderEmailList(filteredMailboxes);
             } catch (error) {
                 console.error('搜索邮箱失败:', error);
                 container.innerHTML = '<div style="padding: 20px; text-align: center; color: #ef4444;">搜索失败，请重试</div>';

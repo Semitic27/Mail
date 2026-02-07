@@ -2187,17 +2187,22 @@
         const ids = groups.map(g => g.id);
         if (!ids.includes(ROOT_GROUP_ID)) {
             // Both fields needed: parentId (used by frontend), parent_id (from backend API)
-            groups.unshift({ id: ROOT_GROUP_ID, name: '所有分组', parentId: null, parent_id: null });
+            groups.unshift({ id: ROOT_GROUP_ID, name: '所有分组', parentId: null, parent_id: null, mailboxCount: mailboxData.length });
         }
         if (!ids.includes(UNGROUPED_GROUP_ID)) {
+            // Calculate ungrouped mailboxes count
+            const groupedMailboxIds = new Set(mailboxGroupMappings.map(m => m.mailbox_id || m.mailboxId));
+            const ungroupedCount = mailboxData.filter(m => !groupedMailboxIds.has(m.id)).length;
             // Both fields needed: parentId (used by frontend), parent_id (from backend API)
-            groups.push({ id: UNGROUPED_GROUP_ID, name: '未分组', parentId: null, parent_id: null });
+            groups.push({ id: UNGROUPED_GROUP_ID, name: '未分组', parentId: null, parent_id: null, mailboxCount: ungroupedCount });
         }
         
         // Normalize parent_id (from backend API) to parentId (used by frontend code)
+        // Also normalize mailbox_count to mailboxCount
         groups = groups.map(g => ({
             ...g,
-            parentId: g.parentId || g.parent_id || null
+            parentId: g.parentId || g.parent_id || null,
+            mailboxCount: g.mailboxCount !== undefined ? g.mailboxCount : (g.mailbox_count !== undefined ? g.mailbox_count : 0)
         }));
 
         rebuildMailboxGroupMapFromMappings();
@@ -2295,7 +2300,19 @@
         }
 
         const name = document.createElement('span');
+        name.className = 'group-name';
         name.textContent = group.name;
+        
+        // Add mailbox count display if count is available
+        if (group.mailboxCount !== undefined && group.mailboxCount !== null) {
+            const count = document.createElement('span');
+            count.className = 'group-count';
+            count.textContent = ` (${group.mailboxCount})`;
+            count.style.color = '#64748b';
+            count.style.fontSize = '0.9em';
+            count.style.marginLeft = '4px';
+            name.appendChild(count);
+        }
 
         item.appendChild(toggle);
         item.appendChild(name);
