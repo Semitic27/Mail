@@ -2525,6 +2525,9 @@ def api_get_mail():
                         # 记录使用日志
                         user_ip = request.environ.get('HTTP_X_FORWARDED_FOR') or request.environ.get('REMOTE_ADDR') or 'unknown'
                         user_agent = request.headers.get('User-Agent', 'unknown')
+                        mail_subject = response_data.get("mail", {}).get("subject", "")
+                        # Use bound email from card if available, otherwise use current email
+                        bound_email = card_info.get('bound_email', email) or email
                         
                         if db_type == 'sqlite':
                             # 更新卡密使用次数
@@ -2534,8 +2537,6 @@ def api_get_mail():
                             ''', (new_used_count, card_info['id']))
                             
                             # 插入使用日志（总是插入，包括最后一次使用）
-                            mail_subject = response_data.get("mail", {}).get("subject", "")
-                            bound_email = card_info.get('bound_email', email) or email  # 使用绑定邮箱或当前邮箱
                             db.execute('''
                                 INSERT INTO card_logs (card_id, card_key, bound_email, user_ip, user_agent, action, result, mail_subject, created_at)
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -2552,8 +2553,6 @@ def api_get_mail():
                             ''', (new_used_count, card_info['id']))
                             
                             # 插入使用日志（总是插入，包括最后一次使用）
-                            mail_subject = response_data.get("mail", {}).get("subject", "")
-                            bound_email = card_info.get('bound_email', email) or email  # 使用绑定邮箱或当前邮箱
                             cursor.execute('''
                                 INSERT INTO card_logs (card_id, card_key, bound_email, user_ip, user_agent, action, result, mail_subject, created_at)
                                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
