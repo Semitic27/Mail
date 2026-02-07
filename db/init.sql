@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS card_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     card_id INTEGER NOT NULL,
     card_key TEXT NOT NULL,
+    bound_email TEXT DEFAULT '',  -- 绑定的邮箱地址（保存时记录，删除卡密后仍保留）
     user_ip TEXT DEFAULT '',
     user_agent TEXT DEFAULT '',
     action TEXT NOT NULL,  -- 'use', 'check', 'invalid'

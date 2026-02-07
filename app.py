@@ -1238,8 +1238,9 @@ def migrate_server_addresses_table(db, db_type):
         logger.error(f"Error during server_addresses table migration: {e}")
 
 def migrate_card_logs_table(db, db_type):
-    """迁移card_logs表，添加邮件主题字段"""
+    """迁移card_logs表，添加邮件主题字段和绑定邮箱字段"""
     try:
+        # Add mail_subject column
         column_name = 'mail_subject'
         if db_type == 'sqlite':
             result = db.execute("PRAGMA table_info(card_logs)").fetchall()
@@ -1262,6 +1263,31 @@ def migrate_card_logs_table(db, db_type):
                         logger.info("Added mail_subject column to card_logs table")
             except Exception as e:
                 logger.error(f"Error checking/adding mail_subject to card_logs: {e}")
+        
+        # Add bound_email column
+        column_name = 'bound_email'
+        if db_type == 'sqlite':
+            result = db.execute("PRAGMA table_info(card_logs)").fetchall()
+            columns = [col[1] for col in result]
+            if column_name not in columns:
+                db.execute("ALTER TABLE card_logs ADD COLUMN bound_email TEXT DEFAULT ''")
+                logger.info("Added bound_email column to card_logs table")
+        else:
+            cursor = db.cursor()
+            try:
+                if db_type == 'mysql':
+                    cursor.execute(f"SHOW COLUMNS FROM card_logs LIKE '{column_name}'")
+                    if not cursor.fetchone():
+                        cursor.execute("ALTER TABLE card_logs ADD COLUMN bound_email VARCHAR(255) DEFAULT ''")
+                        logger.info("Added bound_email column to card_logs table")
+                elif db_type == 'postgresql':
+                    cursor.execute(f"SELECT column_name FROM information_schema.columns WHERE table_name='card_logs' AND column_name='{column_name}'")
+                    if not cursor.fetchone():
+                        cursor.execute("ALTER TABLE card_logs ADD COLUMN bound_email VARCHAR(255) DEFAULT ''")
+                        logger.info("Added bound_email column to card_logs table")
+            except Exception as e:
+                logger.error(f"Error checking/adding bound_email to card_logs: {e}")
+        
         db.commit()
     except Exception as e:
         logger.error(f"Error during card_logs table migration: {e}")
@@ -2509,10 +2535,11 @@ def api_get_mail():
                             
                             # 插入使用日志（总是插入，包括最后一次使用）
                             mail_subject = response_data.get("mail", {}).get("subject", "")
+                            bound_email = card_info.get('bound_email', email) or email  # 使用绑定邮箱或当前邮箱
                             db.execute('''
-                                INSERT INTO card_logs (card_id, card_key, user_ip, user_agent, action, result, mail_subject, created_at)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                            ''', (card_info['id'], card_key, user_ip, user_agent, 'use', 
+                                INSERT INTO card_logs (card_id, card_key, bound_email, user_ip, user_agent, action, result, mail_subject, created_at)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ''', (card_info['id'], card_key, bound_email, user_ip, user_agent, 'use', 
                                   f'成功获取邮件: {mail_subject}', mail_subject, now))
                             
                             db.commit()
@@ -2526,10 +2553,11 @@ def api_get_mail():
                             
                             # 插入使用日志（总是插入，包括最后一次使用）
                             mail_subject = response_data.get("mail", {}).get("subject", "")
+                            bound_email = card_info.get('bound_email', email) or email  # 使用绑定邮箱或当前邮箱
                             cursor.execute('''
-                                INSERT INTO card_logs (card_id, card_key, user_ip, user_agent, action, result, mail_subject, created_at)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                            ''', (card_info['id'], card_key, user_ip, user_agent, 'use', 
+                                INSERT INTO card_logs (card_id, card_key, bound_email, user_ip, user_agent, action, result, mail_subject, created_at)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ''', (card_info['id'], card_key, bound_email, user_ip, user_agent, 'use', 
                                   f'成功获取邮件: {mail_subject}', mail_subject, now))
                             
                             db.commit()
@@ -7043,11 +7071,8 @@ def api_admin_card_logs():
             count_row = db.execute(f"SELECT COUNT(*) as count FROM card_logs {where_clause}", params).fetchone()
             total = count_row['count'] if count_row else 0
             logs = db.execute(f'''
-                SELECT cl.id, cl.card_key, cl.mail_subject, cl.user_ip, cl.created_at,
-                       m.email as bound_email
+                SELECT cl.id, cl.card_key, cl.bound_email, cl.mail_subject, cl.user_ip, cl.created_at
                 FROM card_logs cl
-                LEFT JOIN cards c ON cl.card_id = c.id
-                LEFT JOIN mail_accounts m ON c.bound_email_id = m.id
                 {where_clause}
                 ORDER BY cl.created_at DESC
                 LIMIT ? OFFSET ?
@@ -7060,11 +7085,8 @@ def api_admin_card_logs():
             total = total_row[0] if total_row else 0
             
             cursor.execute(f'''
-                SELECT cl.id, cl.card_key, cl.mail_subject, cl.user_ip, cl.created_at,
-                       m.email as bound_email
+                SELECT cl.id, cl.card_key, cl.bound_email, cl.mail_subject, cl.user_ip, cl.created_at
                 FROM card_logs cl
-                LEFT JOIN cards c ON cl.card_id = c.id
-                LEFT JOIN mail_accounts m ON c.bound_email_id = m.id
                 {where_clause}
                 ORDER BY cl.created_at DESC
                 LIMIT {per_page} OFFSET {offset}
