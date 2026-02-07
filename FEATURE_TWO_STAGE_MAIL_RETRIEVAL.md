@@ -240,10 +240,131 @@ Database adds three TEXT columns with minimal impact
 
 ## 未来改进建议 (Future Improvements)
 
-1. 可以考虑在预览阶段缓存邮件内容，减少第二次请求
-2. 可以添加预览超时机制，超时后需重新获取
+~~1. 可以考虑在预览阶段缓存邮件内容，减少第二次请求~~ ✅ **已实现**
+~~2. 可以添加预览超时机制，超时后需重新获取~~ ✅ **已实现**
 3. 可以添加统计功能，跟踪预览转化率
 
-Consider caching mail content during preview stage to reduce second request
-Could add preview timeout mechanism requiring re-fetch after timeout
+~~Consider caching mail content during preview stage to reduce second request~~ ✅ **Implemented**
+~~Could add preview timeout mechanism requiring re-fetch after timeout~~ ✅ **Implemented**
 Could add analytics to track preview-to-view conversion rate
+
+---
+
+## 邮件缓存机制 (Mail Caching Mechanism) - 新增功能
+
+### 功能说明 (Feature Description)
+
+为了优化性能和用户体验，系统在预览阶段缓存完整的邮件内容，当用户点击"查看完整邮件"时，如果缓存仍然有效，直接返回缓存的数据，避免重复请求邮件服务器。
+
+To optimize performance and user experience, the system caches complete mail content during the preview stage. When users click "View Full Mail", if the cache is still valid, the system returns cached data directly, avoiding redundant mail server requests.
+
+### 缓存机制详情 (Cache Mechanism Details)
+
+#### 1. 缓存时机 (When to Cache)
+- 用户调用 `/api/preview_mail` 时，系统获取完整邮件内容并缓存
+- 缓存存储在 Flask session 中，每个卡密+邮箱组合有独立的缓存
+- When users call `/api/preview_mail`, the system fetches complete mail content and caches it
+- Cache is stored in Flask session, each card+email combination has independent cache
+
+#### 2. 缓存键格式 (Cache Key Format)
+```python
+cache_key = f"mail_cache_{card_key}_{email}"
+# 例如: mail_cache_CARD123_user@example.com
+```
+
+#### 3. 缓存内容 (Cached Content)
+```python
+{
+    'mail_data': {
+        'success': True,
+        'mail': { /* 完整邮件数据 */ },
+        'proxy': { /* 代理信息 */ }
+    },
+    'timestamp': 1234567890.123  # Unix 时间戳
+}
+```
+
+#### 4. 缓存超时 (Cache Timeout)
+- **默认超时时间**: 5 分钟 (300 秒)
+- **配置方式**: 通过环境变量 `MAIL_PREVIEW_CACHE_TIMEOUT` 设置
+- **Default timeout**: 5 minutes (300 seconds)
+- **Configuration**: Set via environment variable `MAIL_PREVIEW_CACHE_TIMEOUT`
+
+```bash
+# 设置缓存超时为10分钟
+export MAIL_PREVIEW_CACHE_TIMEOUT=600
+```
+
+#### 5. 缓存验证 (Cache Validation)
+在 `/api/view_mail` 中，系统会：
+1. 检查缓存是否存在
+2. 计算缓存年龄 (当前时间 - 缓存时间戳)
+3. 如果缓存年龄 < 超时时间，使用缓存
+4. 如果缓存过期，重新获取邮件并更新缓存
+
+In `/api/view_mail`, the system will:
+1. Check if cache exists
+2. Calculate cache age (current time - cached timestamp)
+3. Use cache if age < timeout
+4. Re-fetch mail if cache expired
+
+#### 6. 缓存清理 (Cache Cleanup)
+- 过期的缓存会在检测时自动从 session 中删除
+- Flask session 会自动管理session文件的生命周期
+- Expired cache is automatically removed from session when detected
+- Flask session automatically manages session file lifecycle
+
+### API 响应变化 (API Response Changes)
+
+#### `/api/preview_mail` 响应
+新增 `cached` 字段表示内容已被缓存:
+```json
+{
+    "success": true,
+    "preview": { /* ... */ },
+    "cached": true  // 新增：表示已缓存完整内容
+}
+```
+
+#### `/api/view_mail` 响应
+新增 `from_cache` 字段表示是否使用了缓存:
+```json
+{
+    "success": true,
+    "mail": { /* ... */ },
+    "card_info": {
+        "remaining_uses": 3,
+        "from_cache": true  // 新增：true表示使用缓存，false表示重新获取
+    }
+}
+```
+
+### 性能优势 (Performance Benefits)
+
+1. **减少服务器负载**: 避免重复连接邮件服务器
+2. **加快响应速度**: 从session读取比从邮件服务器获取快得多
+3. **改善用户体验**: 点击"查看完整邮件"后几乎瞬间显示内容
+
+1. **Reduced server load**: Avoids repeated mail server connections
+2. **Faster response**: Reading from session is much faster than fetching from mail server
+3. **Better UX**: Almost instant display after clicking "View Full Mail"
+
+### 日志记录 (Logging)
+
+系统会记录缓存使用情况:
+```
+INFO: Using cached mail content for CARD123, age: 45.2s
+INFO: Cache expired for CARD456, age: 310.5s
+INFO: Fetching mail from server for CARD789
+```
+
+### 安全考虑 (Security Considerations)
+
+1. **Session 隔离**: 每个用户的 session 是独立的，缓存不会跨用户共享
+2. **自动过期**: 缓存有时间限制，防止显示过时内容
+3. **卡密绑定**: 缓存键包含卡密，确保不同卡密不会互相访问缓存
+
+1. **Session isolation**: Each user's session is independent, cache not shared across users
+2. **Auto expiration**: Cache has time limit to prevent showing outdated content
+3. **Card binding**: Cache key includes card key to ensure different cards don't access each other's cache
+

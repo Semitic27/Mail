@@ -157,6 +157,9 @@ app.config['SESSION_PERMANENT'] = False
 app.config['DATABASE'] = os.path.join(os.path.dirname(__file__), 'db', 'mail.sqlite')
 app.config['DATABASE_TYPE'] = os.environ.get('DATABASE_TYPE', 'sqlite')  # sqlite, mysql, postgresql
 
+# 邮件预览缓存超时时间（秒），默认5分钟
+MAIL_PREVIEW_CACHE_TIMEOUT = int(os.environ.get('MAIL_PREVIEW_CACHE_TIMEOUT', 300))
+
 # 确保数据库目录存在
 os.makedirs(os.path.dirname(app.config['DATABASE']), exist_ok=True)
 
@@ -2755,6 +2758,16 @@ def api_preview_mail():
             
             if response_data.get('success') and response_data.get('mail'):
                 mail = response_data['mail']
+                
+                # 生成缓存键（基于卡密和邮箱）
+                cache_key = f"mail_cache_{card_key}_{email}"
+                
+                # 缓存完整邮件内容到 session，包含时间戳
+                session[cache_key] = {
+                    'mail_data': response_data,
+                    'timestamp': time.time()
+                }
+                
                 # 只返回预览信息（标题、发件人、时间）
                 preview_data = {
                     'success': True,
@@ -2768,7 +2781,8 @@ def api_preview_mail():
                         'total_uses': card_info['usage_limit'],
                         'used_count': card_info['used_count']
                     },
-                    'proxy': response_data.get('proxy', {})
+                    'proxy': response_data.get('proxy', {}),
+                    'cached': True  # 标识内容已缓存
                 }
                 return jsonify(preview_data)
             else:
@@ -2887,121 +2901,148 @@ def api_view_mail():
                     'message': f'此卡密只能用于邮箱: {card_info["bound_email"]}'
                 })
         
-        # 调用Python邮件获取器脚本
-        script_args = [
-            sys.executable, 
-            os.path.join(os.path.dirname(__file__), 'python', 'mail_fetcher.py'),
-            email
-        ]
+        # 检查是否有缓存的邮件内容
+        cache_key = f"mail_cache_{card_key}_{email}"
+        cached_data = session.get(cache_key)
         
-        # 添加卡密过滤参数
-        if card_info.get('email_days_filter'):
-            script_args.extend(['--days-filter', str(card_info['email_days_filter'])])
-        
-        if card_info.get('sender_filter'):
-            script_args.extend(['--sender-filter', card_info['sender_filter']])
-        
-        if card_info.get('keyword_filter'):
-            script_args.extend(['--keyword-filter', card_info['keyword_filter']])
-        
-        result = subprocess.run(script_args, capture_output=True, text=True, timeout=30)
-        
-        if result.returncode == 0:
-            response_data = json.loads(result.stdout)
-            
-            if response_data.get('success') and response_data.get('mail'):
-                mail = response_data['mail']
-                mail_subject = mail.get('subject', '')
-                mail_date = mail.get('date', '')
-                mail_message_id = mail.get('message_id', '')
-                
-                # 检查是否是同一封邮件（与上次获取的邮件比较）
-                # 优先使用message_id比较（更可靠），如果没有则使用subject+date
-                is_same_mail = False
-                if mail_message_id and card_info.get('last_mail_message_id'):
-                    # 使用message_id比较（最可靠）
-                    if card_info['last_mail_message_id'] == mail_message_id:
-                        is_same_mail = True
-                elif card_info.get('last_mail_subject') and card_info.get('last_mail_date'):
-                    # 降级到subject+date比较
-                    if (card_info['last_mail_subject'] == mail_subject and 
-                        card_info['last_mail_date'] == mail_date):
-                        is_same_mail = True
-                
-                # 如果不是同一封邮件，则扣除使用次数
-                if not is_same_mail:
-                    new_used_count = card_info['used_count'] + 1
-                    
-                    # 更新卡密使用次数和最后邮件信息
-                    if db_type == 'sqlite':
-                        db.execute('''
-                            UPDATE cards 
-                            SET used_count = ?, last_mail_subject = ?, last_mail_date = ?, last_mail_message_id = ?, updated_at = CURRENT_TIMESTAMP 
-                            WHERE id = ?
-                        ''', (new_used_count, mail_subject, mail_date, mail_message_id, card_info['id']))
-                    else:
-                        cursor = db.cursor()
-                        cursor.execute('''
-                            UPDATE cards 
-                            SET used_count = %s, last_mail_subject = %s, last_mail_date = %s, last_mail_message_id = %s, updated_at = CURRENT_TIMESTAMP 
-                            WHERE id = %s
-                        ''', (new_used_count, mail_subject, mail_date, mail_message_id, card_info['id']))
-                    
-                    # 记录使用日志
-                    user_ip = request.environ.get('HTTP_X_FORWARDED_FOR') or request.environ.get('REMOTE_ADDR') or 'unknown'
-                    user_agent = request.headers.get('User-Agent', 'unknown')
-                    bound_email = card_info.get('bound_email', email) or email
-                    
-                    if db_type == 'sqlite':
-                        db.execute('''
-                            INSERT INTO card_logs (card_id, card_key, bound_email, user_ip, user_agent, action, result, mail_subject, created_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ''', (card_info['id'], card_key, bound_email, user_ip, user_agent, 'view', 
-                              f'查看邮件: {mail_subject}', mail_subject, now))
-                    else:
-                        cursor = db.cursor()
-                        cursor.execute('''
-                            INSERT INTO card_logs (card_id, card_key, bound_email, user_ip, user_agent, action, result, mail_subject, created_at)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ''', (card_info['id'], card_key, bound_email, user_ip, user_agent, 'view', 
-                              f'查看邮件: {mail_subject}', mail_subject, now))
-                    
-                    db.commit()
-                    
-                    response_data['card_info'] = {
-                        'remaining_uses': card_info['usage_limit'] - new_used_count,
-                        'total_uses': card_info['usage_limit'],
-                        'used_count': new_used_count,
-                        'count_deducted': True
-                    }
-                else:
-                    # 同一封邮件，不扣除次数
-                    response_data['card_info'] = {
-                        'remaining_uses': card_info['usage_limit'] - card_info['used_count'],
-                        'total_uses': card_info['usage_limit'],
-                        'used_count': card_info['used_count'],
-                        'count_deducted': False,
-                        'is_same_mail': True
-                    }
-                
-                return jsonify(response_data)
+        # 验证缓存是否有效（存在且未过期）
+        use_cache = False
+        if cached_data and 'mail_data' in cached_data and 'timestamp' in cached_data:
+            cache_age = time.time() - cached_data['timestamp']
+            if cache_age < MAIL_PREVIEW_CACHE_TIMEOUT:
+                use_cache = True
+                logger.info(f"Using cached mail content for {card_key}, age: {cache_age:.1f}s")
             else:
-                return jsonify(response_data)
+                logger.info(f"Cache expired for {card_key}, age: {cache_age:.1f}s")
+                # 清除过期缓存
+                session.pop(cache_key, None)
+        
+        # 如果有有效缓存，使用缓存的数据
+        if use_cache:
+            response_data = cached_data['mail_data']
         else:
-            return jsonify({
-                'success': False,
-                'message': f'邮件获取失败: {result.stderr or "未知错误"}'
-            })
+            # 没有缓存或缓存过期，重新获取邮件
+            logger.info(f"Fetching mail from server for {card_key}")
+            
+            # 调用Python邮件获取器脚本
+            script_args = [
+                sys.executable, 
+                os.path.join(os.path.dirname(__file__), 'python', 'mail_fetcher.py'),
+                email
+            ]
+            
+            # 添加卡密过滤参数
+            if card_info.get('email_days_filter'):
+                script_args.extend(['--days-filter', str(card_info['email_days_filter'])])
+            
+            if card_info.get('sender_filter'):
+                script_args.extend(['--sender-filter', card_info['sender_filter']])
+            
+            if card_info.get('keyword_filter'):
+                script_args.extend(['--keyword-filter', card_info['keyword_filter']])
+            
+            result = subprocess.run(script_args, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode != 0:
+                return jsonify({
+                    'success': False,
+                    'message': f'邮件获取失败: {result.stderr or "未知错误"}'
+                })
+            
+            try:
+                response_data = json.loads(result.stdout)
+            except json.JSONDecodeError:
+                return jsonify({
+                    'success': False,
+                    'message': '邮件服务响应格式错误'
+                })
+        
+        # 处理获取到的邮件数据
+        if response_data.get('success') and response_data.get('mail'):
+            mail = response_data['mail']
+            mail_subject = mail.get('subject', '')
+            mail_date = mail.get('date', '')
+            mail_message_id = mail.get('message_id', '')
+            
+            # 检查是否是同一封邮件（与上次获取的邮件比较）
+            # 优先使用message_id比较（更可靠），如果没有则使用subject+date
+            is_same_mail = False
+            if mail_message_id and card_info.get('last_mail_message_id'):
+                # 使用message_id比较（最可靠）
+                if card_info['last_mail_message_id'] == mail_message_id:
+                    is_same_mail = True
+            elif card_info.get('last_mail_subject') and card_info.get('last_mail_date'):
+                # 降级到subject+date比较
+                if (card_info['last_mail_subject'] == mail_subject and 
+                    card_info['last_mail_date'] == mail_date):
+                    is_same_mail = True
+            
+            # 如果不是同一封邮件，则扣除使用次数
+            if not is_same_mail:
+                new_used_count = card_info['used_count'] + 1
+                
+                # 更新卡密使用次数和最后邮件信息
+                if db_type == 'sqlite':
+                    db.execute('''
+                        UPDATE cards 
+                        SET used_count = ?, last_mail_subject = ?, last_mail_date = ?, last_mail_message_id = ?, updated_at = CURRENT_TIMESTAMP 
+                        WHERE id = ?
+                    ''', (new_used_count, mail_subject, mail_date, mail_message_id, card_info['id']))
+                else:
+                    cursor = db.cursor()
+                    cursor.execute('''
+                        UPDATE cards 
+                        SET used_count = %s, last_mail_subject = %s, last_mail_date = %s, last_mail_message_id = %s, updated_at = CURRENT_TIMESTAMP 
+                        WHERE id = %s
+                    ''', (new_used_count, mail_subject, mail_date, mail_message_id, card_info['id']))
+                
+                # 记录使用日志
+                user_ip = request.environ.get('HTTP_X_FORWARDED_FOR') or request.environ.get('REMOTE_ADDR') or 'unknown'
+                user_agent = request.headers.get('User-Agent', 'unknown')
+                bound_email = card_info.get('bound_email', email) or email
+                
+                if db_type == 'sqlite':
+                    db.execute('''
+                        INSERT INTO card_logs (card_id, card_key, bound_email, user_ip, user_agent, action, result, mail_subject, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (card_info['id'], card_key, bound_email, user_ip, user_agent, 'view', 
+                          f'查看邮件: {mail_subject}', mail_subject, now))
+                else:
+                    cursor = db.cursor()
+                    cursor.execute('''
+                        INSERT INTO card_logs (card_id, card_key, bound_email, user_ip, user_agent, action, result, mail_subject, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ''', (card_info['id'], card_key, bound_email, user_ip, user_agent, 'view', 
+                          f'查看邮件: {mail_subject}', mail_subject, now))
+                
+                db.commit()
+                
+                response_data['card_info'] = {
+                    'remaining_uses': card_info['usage_limit'] - new_used_count,
+                    'total_uses': card_info['usage_limit'],
+                    'used_count': new_used_count,
+                    'count_deducted': True,
+                    'from_cache': use_cache
+                }
+            else:
+                # 同一封邮件，不扣除次数
+                response_data['card_info'] = {
+                    'remaining_uses': card_info['usage_limit'] - card_info['used_count'],
+                    'total_uses': card_info['usage_limit'],
+                    'used_count': card_info['used_count'],
+                    'count_deducted': False,
+                    'is_same_mail': True,
+                    'from_cache': use_cache
+                }
+            
+            return jsonify(response_data)
+        else:
+            return jsonify(response_data)
             
     except subprocess.TimeoutExpired:
         return jsonify({
             'success': False,
             'message': '邮件获取超时，请稍后重试'
-        })
-    except json.JSONDecodeError:
-        return jsonify({
-            'success': False,
-            'message': '邮件服务响应格式错误'
         })
     except Exception as e:
         logger.error(f"Error in view_mail: {e}")
