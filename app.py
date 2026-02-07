@@ -1890,12 +1890,13 @@ def update_mailbox_group_count(db, db_type, group_id, delta=None):
                     WHERE id = %s
                 """, (delta, get_beijing_time(), group_id))
         else:
-            # 重新计算总数
+            # 重新计算总数 - 只计算存在的邮箱，不包括已删除的
             if db_type == 'sqlite':
                 count_result = db.execute("""
                     SELECT COUNT(*) as cnt 
-                    FROM mailbox_group_mappings 
-                    WHERE group_id = ?
+                    FROM mailbox_group_mappings m
+                    INNER JOIN mail_accounts a ON m.mailbox_id = a.id
+                    WHERE m.group_id = ?
                 """, (group_id,)).fetchone()
                 count = count_result['cnt'] if count_result else 0
                 db.execute("""
@@ -1908,8 +1909,9 @@ def update_mailbox_group_count(db, db_type, group_id, delta=None):
                 cursor = db.cursor()
                 cursor.execute("""
                     SELECT COUNT(*) as cnt 
-                    FROM mailbox_group_mappings 
-                    WHERE group_id = %s
+                    FROM mailbox_group_mappings m
+                    INNER JOIN mail_accounts a ON m.mailbox_id = a.id
+                    WHERE m.group_id = %s
                 """, (group_id,))
                 count = cursor.fetchone()[0]
                 cursor.execute("""
