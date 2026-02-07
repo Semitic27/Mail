@@ -2328,7 +2328,7 @@ def api_get_mail():
         folder = (data.get('folder') or 'INBOX').strip() or 'INBOX'
         
         # Preview mode: fetch mail without incrementing card usage (for duplicate detection)
-        preview_only = bool(data.get('preview_only', False))
+        preview_only = data.get('preview_only', False)
         
         if not is_admin and not card_key:
             return jsonify({
@@ -2522,64 +2522,65 @@ def api_get_mail():
                     # 解析JSON输出
                     response_data = json.loads(result.stdout)
                     
-                    # 如果邮件获取成功，更新卡密使用次数（除非是预览模式）
-                    if response_data.get('success') and response_data.get('mail') and not preview_only:
-                        # 增加使用次数
-                        new_used_count = card_info['used_count'] + 1
-                        
-                        # 记录使用日志
-                        user_ip = request.environ.get('HTTP_X_FORWARDED_FOR') or request.environ.get('REMOTE_ADDR') or 'unknown'
-                        user_agent = request.headers.get('User-Agent', 'unknown')
-                        mail_subject = response_data.get("mail", {}).get("subject", "")
-                        # Use bound email from card if available, otherwise use current email
-                        bound_email = card_info.get('bound_email', email) or email
-                        
-                        if db_type == 'sqlite':
-                            # 更新卡密使用次数
-                            db.execute('''
-                                UPDATE cards SET used_count = ?, updated_at = CURRENT_TIMESTAMP 
-                                WHERE id = ?
-                            ''', (new_used_count, card_info['id']))
-                            
-                            # 插入使用日志（总是插入，包括最后一次使用）
-                            db.execute('''
-                                INSERT INTO card_logs (card_id, card_key, bound_email, user_ip, user_agent, action, result, mail_subject, created_at)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            ''', (card_info['id'], card_key, bound_email, user_ip, user_agent, 'use', 
-                                  f'成功获取邮件: {mail_subject}', mail_subject, now))
-                            
-                            db.commit()
+                    # 如果邮件获取成功，处理卡密信息
+                    if response_data.get('success') and response_data.get('mail'):
+                        if preview_only:
+                            # 预览模式：不扣除次数，但返回当前的卡密信息
+                            response_data['card_info'] = {
+                                'remaining_uses': card_info['usage_limit'] - card_info['used_count'],
+                                'total_uses': card_info['usage_limit'],
+                                'used_count': card_info['used_count']
+                            }
+                            response_data['preview_mode'] = True
                         else:
-                            cursor = db.cursor()
-                            # 更新卡密使用次数
-                            cursor.execute('''
-                                UPDATE cards SET used_count = %s, updated_at = CURRENT_TIMESTAMP 
-                                WHERE id = %s
-                            ''', (new_used_count, card_info['id']))
+                            # 正常模式：增加使用次数
+                            new_used_count = card_info['used_count'] + 1
                             
-                            # 插入使用日志（总是插入，包括最后一次使用）
-                            cursor.execute('''
-                                INSERT INTO card_logs (card_id, card_key, bound_email, user_ip, user_agent, action, result, mail_subject, created_at)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            ''', (card_info['id'], card_key, bound_email, user_ip, user_agent, 'use', 
-                                  f'成功获取邮件: {mail_subject}', mail_subject, now))
+                            # 记录使用日志
+                            user_ip = request.environ.get('HTTP_X_FORWARDED_FOR') or request.environ.get('REMOTE_ADDR') or 'unknown'
+                            user_agent = request.headers.get('User-Agent', 'unknown')
+                            mail_subject = response_data.get("mail", {}).get("subject", "")
+                            # Use bound email from card if available, otherwise use current email
+                            bound_email = card_info.get('bound_email', email) or email
                             
-                            db.commit()
-                        
-                        # 更新响应数据，包含剩余使用次数
-                        response_data['card_info'] = {
-                            'remaining_uses': card_info['usage_limit'] - new_used_count,
-                            'total_uses': card_info['usage_limit'],
-                            'used_count': new_used_count
-                        }
-                    elif response_data.get('success') and response_data.get('mail') and preview_only:
-                        # 预览模式：不扣除次数，但返回当前的卡密信息
-                        response_data['card_info'] = {
-                            'remaining_uses': card_info['usage_limit'] - card_info['used_count'],
-                            'total_uses': card_info['usage_limit'],
-                            'used_count': card_info['used_count']
-                        }
-                        response_data['preview_mode'] = True
+                            if db_type == 'sqlite':
+                                # 更新卡密使用次数
+                                db.execute('''
+                                    UPDATE cards SET used_count = ?, updated_at = CURRENT_TIMESTAMP 
+                                    WHERE id = ?
+                                ''', (new_used_count, card_info['id']))
+                                
+                                # 插入使用日志（总是插入，包括最后一次使用）
+                                db.execute('''
+                                    INSERT INTO card_logs (card_id, card_key, bound_email, user_ip, user_agent, action, result, mail_subject, created_at)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ''', (card_info['id'], card_key, bound_email, user_ip, user_agent, 'use', 
+                                      f'成功获取邮件: {mail_subject}', mail_subject, now))
+                                
+                                db.commit()
+                            else:
+                                cursor = db.cursor()
+                                # 更新卡密使用次数
+                                cursor.execute('''
+                                    UPDATE cards SET used_count = %s, updated_at = CURRENT_TIMESTAMP 
+                                    WHERE id = %s
+                                ''', (new_used_count, card_info['id']))
+                                
+                                # 插入使用日志（总是插入，包括最后一次使用）
+                                cursor.execute('''
+                                    INSERT INTO card_logs (card_id, card_key, bound_email, user_ip, user_agent, action, result, mail_subject, created_at)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                ''', (card_info['id'], card_key, bound_email, user_ip, user_agent, 'use', 
+                                      f'成功获取邮件: {mail_subject}', mail_subject, now))
+                                
+                                db.commit()
+                            
+                            # 更新响应数据，包含剩余使用次数
+                            response_data['card_info'] = {
+                                'remaining_uses': card_info['usage_limit'] - new_used_count,
+                                'total_uses': card_info['usage_limit'],
+                                'used_count': new_used_count
+                            }
                     
                     return jsonify(response_data)
                 else:
@@ -6762,7 +6763,8 @@ def api_admin_generate_card_api_page(card_key):
         // 生成邮件标识符（用于检测重复）
         function generateMailIdentifier(mail) {{
             // 使用主题、发件人、日期和正文的前100个字符生成唯一标识
-            const bodyPreview = (mail.body || '').substring(0, 100);
+            const BODY_PREVIEW_LENGTH = 100;
+            const bodyPreview = (mail.body || '').substring(0, BODY_PREVIEW_LENGTH);
             const identifierString = `${{mail.subject}}|${{mail.from}}|${{mail.date}}|${{bodyPreview}}`;
             
             // 简单的哈希函数
@@ -6770,7 +6772,7 @@ def api_admin_generate_card_api_page(card_key):
             for (let i = 0; i < identifierString.length; i++) {{
                 const char = identifierString.charCodeAt(i);
                 hash = ((hash << 5) - hash) + char;
-                hash = hash & hash; // Convert to 32bit integer
+                hash = hash | 0; // Convert to 32bit integer
             }}
             return hash.toString();
         }}
