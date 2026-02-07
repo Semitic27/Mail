@@ -1922,6 +1922,8 @@
                 mailboxData = data.data || [];
                 await refreshMailboxGroupMappings();
                 rebuildMailboxGroupMapFromMappings();
+                recalculateGroupCounts();  // Recalculate counts after loading mailboxes
+                renderGroupTree();  // Re-render tree to show updated counts
                 renderMailboxView(page);
             } else {
                 showToast('加载邮箱列表失败', 'error');
@@ -2160,6 +2162,28 @@
         return true;
     }
 
+    function recalculateGroupCounts() {
+        // Recalculate counts for all groups based on current mailboxData and mailboxGroupMappings
+        const groupedMailboxIds = new Set(mailboxGroupMappings.map(m => m.mailbox_id || m.mailboxId));
+        
+        // Update each group's count
+        groups.forEach(group => {
+            if (group.id === ROOT_GROUP_ID) {
+                // "所有分组" shows total count of all mailboxes
+                group.mailboxCount = mailboxData.length;
+            } else if (group.id === UNGROUPED_GROUP_ID) {
+                // "未分组" shows count of mailboxes not in any group
+                group.mailboxCount = mailboxData.filter(m => !groupedMailboxIds.has(m.id)).length;
+            } else {
+                // Custom groups: count mailboxes assigned to this group
+                const mailboxesInGroup = mailboxGroupMappings.filter(m => 
+                    (m.group_id || m.groupId) === group.id
+                );
+                group.mailboxCount = mailboxesInGroup.length;
+            }
+        });
+    }
+
     async function initGroups() {
         try {
             // Load groups from API instead of localStorage
@@ -2204,6 +2228,9 @@
             parentId: g.parentId || g.parent_id || null,
             mailboxCount: g.mailboxCount !== undefined ? g.mailboxCount : (g.mailbox_count !== undefined ? g.mailbox_count : 0)
         }));
+
+        // Recalculate all group counts based on current mailbox data
+        recalculateGroupCounts();
 
         rebuildMailboxGroupMapFromMappings();
         
@@ -2304,7 +2331,12 @@
         name.textContent = group.name;
         
         // Add mailbox count display if count is available
-        if (group.mailboxCount !== undefined && group.mailboxCount !== null) {
+        // Hide count for parent groups that have child groups (except "所有分组" and "未分组")
+        const shouldShowCount = group.mailboxCount !== undefined && 
+                                group.mailboxCount !== null && 
+                                (!hasChildren || group.id === ROOT_GROUP_ID || group.id === UNGROUPED_GROUP_ID);
+        
+        if (shouldShowCount) {
             const count = document.createElement('span');
             count.className = 'group-count';
             count.textContent = ` (${group.mailboxCount})`;
@@ -2489,6 +2521,7 @@
                     };
                     groups.push(newGroup);
                     selectedGroupId = newGroup.id;
+                    recalculateGroupCounts();  // Recalculate counts after group creation
                     showToast('分组添加成功', 'success');
                 } else {
                     showToast(data.message || '分组添加失败', 'error');
@@ -2541,6 +2574,7 @@
                 mailboxGroupMappings = mailboxGroupMappings.filter(mapping => !idsToRemove.includes(mapping.group_id ?? mapping.groupId));
                 
                 selectedGroupId = ROOT_GROUP_ID;
+                recalculateGroupCounts();  // Recalculate counts after group deletion
                 renderGroupTree();
                 refreshGroupSelects();
                 renderMailboxView(1);
@@ -2591,6 +2625,9 @@
                     mailboxGroupMappings = mailboxGroupMappings.filter(m => (m.mailbox_id ?? m.mailboxId) !== mailboxId);
                     mailboxGroupMappings.push({ mailbox_id: mailboxId, group_id: groupId });
                 }
+                // Recalculate and refresh group counts
+                recalculateGroupCounts();
+                renderGroupTree();
             } else {
                 showToast(data.message || '分组分配失败', 'error');
             }
