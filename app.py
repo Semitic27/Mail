@@ -2372,19 +2372,13 @@ def api_get_mail():
                                 WHERE id = ?
                             ''', (new_used_count, card_info['id']))
                             
-                            # 检查卡密是否已用完，如果用完则移动到回收站
-                            if new_used_count >= card_info['usage_limit']:
-                                # 将卡密移动到回收站
-                                move_card_to_recycle_bin(db, db_type, card_info['id'], 'expired', '使用次数已用完')
-                                logger.info(f"Card {card_key} moved to recycle bin (usage limit reached)")
-                            else:
-                                # 插入使用日志（仅在未过期时）
-                                mail_subject = response_data.get("mail", {}).get("subject", "")
-                                db.execute('''
-                                    INSERT INTO card_logs (card_id, card_key, user_ip, user_agent, action, result, mail_subject, created_at)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                                ''', (card_info['id'], card_key, user_ip, user_agent, 'use', 
-                                      f'成功获取邮件: {mail_subject}', mail_subject, now))
+                            # 插入使用日志（总是插入，包括最后一次使用）
+                            mail_subject = response_data.get("mail", {}).get("subject", "")
+                            db.execute('''
+                                INSERT INTO card_logs (card_id, card_key, user_ip, user_agent, action, result, mail_subject, created_at)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            ''', (card_info['id'], card_key, user_ip, user_agent, 'use', 
+                                  f'成功获取邮件: {mail_subject}', mail_subject, now))
                             
                             db.commit()
                         else:
@@ -2395,19 +2389,13 @@ def api_get_mail():
                                 WHERE id = %s
                             ''', (new_used_count, card_info['id']))
                             
-                            # 检查卡密是否已用完，如果用完则移动到回收站
-                            if new_used_count >= card_info['usage_limit']:
-                                # 将卡密移动到回收站
-                                move_card_to_recycle_bin(db, db_type, card_info['id'], 'expired', '使用次数已用完')
-                                logger.info(f"Card {card_key} moved to recycle bin (usage limit reached)")
-                            else:
-                                # 插入使用日志（仅在未过期时）
-                                mail_subject = response_data.get("mail", {}).get("subject", "")
-                                cursor.execute('''
-                                    INSERT INTO card_logs (card_id, card_key, user_ip, user_agent, action, result, mail_subject, created_at)
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                                ''', (card_info['id'], card_key, user_ip, user_agent, 'use', 
-                                      f'成功获取邮件: {mail_subject}', mail_subject, now))
+                            # 插入使用日志（总是插入，包括最后一次使用）
+                            mail_subject = response_data.get("mail", {}).get("subject", "")
+                            cursor.execute('''
+                                INSERT INTO card_logs (card_id, card_key, user_ip, user_agent, action, result, mail_subject, created_at)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                            ''', (card_info['id'], card_key, user_ip, user_agent, 'use', 
+                                  f'成功获取邮件: {mail_subject}', mail_subject, now))
                             
                             db.commit()
                         
@@ -5567,7 +5555,8 @@ def api_admin_card_available_emails(card_id):
             count_sql = f"""
                 SELECT COUNT(*) as count 
                 FROM mail_accounts m
-                WHERE NOT EXISTS (
+                WHERE m.status = 1 
+                AND NOT EXISTS (
                     SELECT 1
                     FROM cards 
                     WHERE bound_email_id = m.id AND bound_email_id IS NOT NULL AND id != ?
@@ -5582,7 +5571,8 @@ def api_admin_card_available_emails(card_id):
                 SELECT m.id, m.email, m.server, m.port, m.protocol, m.ssl, 
                        m.send_server, m.send_port, m.remarks, m.status
                 FROM mail_accounts m
-                WHERE NOT EXISTS (
+                WHERE m.status = 1 
+                AND NOT EXISTS (
                     SELECT 1
                     FROM cards 
                     WHERE bound_email_id = m.id AND bound_email_id IS NOT NULL AND id != ?
@@ -5602,7 +5592,8 @@ def api_admin_card_available_emails(card_id):
             count_sql = f"""
                 SELECT COUNT(*) as count 
                 FROM mail_accounts m
-                WHERE NOT EXISTS (
+                WHERE m.status = 1 
+                AND NOT EXISTS (
                     SELECT 1
                     FROM cards 
                     WHERE bound_email_id = m.id AND bound_email_id IS NOT NULL AND id != {placeholder}
@@ -5617,7 +5608,8 @@ def api_admin_card_available_emails(card_id):
                 SELECT m.id, m.email, m.server, m.port, m.protocol, m.ssl, 
                        m.send_server, m.send_port, m.remarks, m.status
                 FROM mail_accounts m
-                WHERE NOT EXISTS (
+                WHERE m.status = 1 
+                AND NOT EXISTS (
                     SELECT 1
                     FROM cards 
                     WHERE bound_email_id = m.id AND bound_email_id IS NOT NULL AND id != {placeholder}
@@ -6071,6 +6063,27 @@ def api_admin_generate_card_api_page(card_key):
             border: 1px solid #93c5fd;
         }}
         
+        .warning-message {{
+            background: #fee2e2;
+            color: #dc2626;
+            border: 2px solid #ef4444;
+            border-radius: 12px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            font-weight: 600;
+            font-size: 14px;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }}
+        
+        .warning-message::before {{
+            content: '⚠️';
+            font-size: 20px;
+        }}
+        
         .mail-display {{
             display: none;
             background: white;
@@ -6410,6 +6423,10 @@ def api_admin_generate_card_api_page(card_key):
         
         <div class="main-card">
             {input_section}
+            
+            <div class="warning-message">
+                邮件有延迟，不要连续重复获取邮件，间隔1-2分钟再点击获取邮件
+            </div>
             
             <div class="loading" id="loading">
                 <div class="spinner"></div>
@@ -6832,9 +6849,13 @@ def api_admin_card_logs():
             count_row = db.execute(f"SELECT COUNT(*) as count FROM card_logs {where_clause}", params).fetchone()
             total = count_row['count'] if count_row else 0
             logs = db.execute(f'''
-                SELECT id, card_key, mail_subject, user_ip, created_at 
-                FROM card_logs {where_clause}
-                ORDER BY created_at DESC
+                SELECT cl.id, cl.card_key, cl.mail_subject, cl.user_ip, cl.created_at,
+                       m.email as bound_email
+                FROM card_logs cl
+                LEFT JOIN cards c ON cl.card_id = c.id
+                LEFT JOIN mail_accounts m ON c.bound_email_id = m.id
+                {where_clause}
+                ORDER BY cl.created_at DESC
                 LIMIT ? OFFSET ?
             ''', params + [per_page, offset]).fetchall()
             data_rows = [dict(row) for row in logs]
@@ -6845,9 +6866,13 @@ def api_admin_card_logs():
             total = total_row[0] if total_row else 0
             
             cursor.execute(f'''
-                SELECT id, card_key, mail_subject, user_ip, created_at 
-                FROM card_logs {where_clause}
-                ORDER BY created_at DESC
+                SELECT cl.id, cl.card_key, cl.mail_subject, cl.user_ip, cl.created_at,
+                       m.email as bound_email
+                FROM card_logs cl
+                LEFT JOIN cards c ON cl.card_id = c.id
+                LEFT JOIN mail_accounts m ON c.bound_email_id = m.id
+                {where_clause}
+                ORDER BY cl.created_at DESC
                 LIMIT {per_page} OFFSET {offset}
             ''', params)
             logs = cursor.fetchall()

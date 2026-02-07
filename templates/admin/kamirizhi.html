@@ -580,6 +580,7 @@
                             <tr>
                                 <th>序号</th>
                                 <th>卡密</th>
+                                <th>卡密绑定邮箱</th>
                                 <th>邮件标题</th>
                                 <th>使用者IP</th>
                                 <th>使用时间（北京时间）</th>
@@ -587,7 +588,7 @@
                         </thead>
                         <tbody id="cardLogBody">
                             <tr>
-                                <td colspan="5" style="text-align:center; padding:20px; color:#6b7280;">正在加载...</td>
+                                <td colspan="6" style="text-align:center; padding:20px; color:#6b7280;">正在加载...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -720,7 +721,7 @@
     function renderCardLogs(logs) {
         const tbody = document.getElementById('cardLogBody');
         if (!logs || logs.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px; color:#6b7280;">暂无卡密日志</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:#6b7280;">暂无卡密日志</td></tr>`;
             return;
         }
         
@@ -728,6 +729,7 @@
             <tr>
                 <td>${(logPage - 1) * logPerPage + index + 1}</td>
                 <td>${escapeHtml(log.card_key)}</td>
+                <td>${escapeHtml(log.bound_email || '-')}</td>
                 <td>${escapeHtml(log.mail_subject || '-')}</td>
                 <td>${escapeHtml(log.user_ip || '-')}</td>
                 <td>${formatDateTime(log.created_at)}</td>
