@@ -2327,6 +2327,9 @@ def api_get_mail():
         # Optional folder selection
         folder = (data.get('folder') or 'INBOX').strip() or 'INBOX'
         
+        # Preview mode: fetch mail without incrementing card usage (for duplicate detection)
+        preview_only = bool(data.get('preview_only', False))
+        
         if not is_admin and not card_key:
             return jsonify({
                 'success': False,
@@ -2519,8 +2522,8 @@ def api_get_mail():
                     # 解析JSON输出
                     response_data = json.loads(result.stdout)
                     
-                    # 如果邮件获取成功，更新卡密使用次数
-                    if response_data.get('success') and response_data.get('mail'):
+                    # 如果邮件获取成功，更新卡密使用次数（除非是预览模式）
+                    if response_data.get('success') and response_data.get('mail') and not preview_only:
                         # 增加使用次数
                         new_used_count = card_info['used_count'] + 1
                         
@@ -2569,6 +2572,14 @@ def api_get_mail():
                             'total_uses': card_info['usage_limit'],
                             'used_count': new_used_count
                         }
+                    elif response_data.get('success') and response_data.get('mail') and preview_only:
+                        # 预览模式：不扣除次数，但返回当前的卡密信息
+                        response_data['card_info'] = {
+                            'remaining_uses': card_info['usage_limit'] - card_info['used_count'],
+                            'total_uses': card_info['usage_limit'],
+                            'used_count': card_info['used_count']
+                        }
+                        response_data['preview_mode'] = True
                     
                     return jsonify(response_data)
                 else:
@@ -6748,6 +6759,34 @@ def api_admin_generate_card_api_page(card_key):
             }});
         }}
         
+        // 生成邮件标识符（用于检测重复）
+        function generateMailIdentifier(mail) {{
+            // 使用主题、发件人、日期和正文的前100个字符生成唯一标识
+            const bodyPreview = (mail.body || '').substring(0, 100);
+            const identifierString = `${{mail.subject}}|${{mail.from}}|${{mail.date}}|${{bodyPreview}}`;
+            
+            // 简单的哈希函数
+            let hash = 0;
+            for (let i = 0; i < identifierString.length; i++) {{
+                const char = identifierString.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash; // Convert to 32bit integer
+            }}
+            return hash.toString();
+        }}
+        
+        // 获取本地存储的上次邮件标识
+        function getLastMailIdentifier(email) {{
+            const storageKey = `last_mail_${{email}}_${{'{card_key}'}}`;
+            return localStorage.getItem(storageKey);
+        }}
+        
+        // 保存邮件标识到本地存储
+        function saveMailIdentifier(email, identifier) {{
+            const storageKey = `last_mail_${{email}}_${{'{card_key}'}}`;
+            localStorage.setItem(storageKey, identifier);
+        }}
+        
         async function getMail() {{
             const loading = document.getElementById('loading');
             const mailDisplay = document.getElementById('mailDisplay');
@@ -6781,6 +6820,72 @@ def api_admin_generate_card_api_page(card_key):
             mailDisplay.style.display = 'none';
             
             try {{
+                // 第一步：预览模式获取邮件，不扣除次数
+                const previewResponse = await fetch('/api/get_mail', {{
+                    method: 'POST',
+                    headers: {{
+                        'Content-Type': 'application/json',
+                        'X-Card-Key': '{card_key}'
+                    }},
+                    body: JSON.stringify({{ 
+                        email: email,
+                        card_key: '{card_key}',
+                        preview_only: true
+                    }})
+                }});
+                
+                const previewData = await previewResponse.json();
+                
+                if (!previewData.success) {{
+                    // 预览失败，显示错误
+                    let errorMessage = previewData.message || '获取邮件失败';
+                    const hasConnectionInfo = /\\(直连\\)|\\(代理\\)|\\(通过.*\\)|\\(代理连接.*\\)/.test(errorMessage);
+                    
+                    if (!hasConnectionInfo) {{
+                        if (previewData.proxy && previewData.proxy.enabled) {{
+                            if (previewData.proxy.info && previewData.proxy.info.name) {{
+                                errorMessage += ` (代理连接: ${{previewData.proxy.info.name}})`;
+                            }} else {{
+                                errorMessage += ' (代理连接)';
+                            }}
+                        }} else {{
+                            errorMessage += ' (直连)';
+                        }}
+                    }}
+                    showToast(errorMessage, 'error');
+                    return;
+                }}
+                
+                if (!previewData.mail) {{
+                    // 没有邮件
+                    let noMailMessage = '邮箱中暂无邮件';
+                    if (previewData.proxy && previewData.proxy.enabled) {{
+                        noMailMessage += ' (代理)';
+                    }} else {{
+                        noMailMessage += ' (直连)';
+                    }}
+                    showToast(noMailMessage, 'info');
+                    return;
+                }}
+                
+                // 第二步：生成邮件标识符并比较
+                const newMailIdentifier = generateMailIdentifier(previewData.mail);
+                const lastMailIdentifier = getLastMailIdentifier(email);
+                
+                if (lastMailIdentifier && newMailIdentifier === lastMailIdentifier) {{
+                    // 邮件相同，不扣除次数
+                    displayMailWithCardInfo(previewData);
+                    let duplicateMessage = '获取的邮件与上次相同，未扣除卡密次数';
+                    if (previewData.proxy && previewData.proxy.enabled) {{
+                        duplicateMessage += ' (代理)';
+                    }} else {{
+                        duplicateMessage += ' (直连)';
+                    }}
+                    showToast(duplicateMessage, 'info', 5000);
+                    return;
+                }}
+                
+                // 第三步：邮件不同或首次获取，进行真实的获取并扣除次数
                 const response = await fetch('/api/get_mail', {{
                     method: 'POST',
                     headers: {{
@@ -6789,7 +6894,8 @@ def api_admin_generate_card_api_page(card_key):
                     }},
                     body: JSON.stringify({{ 
                         email: email,
-                        card_key: '{card_key}'
+                        card_key: '{card_key}',
+                        preview_only: false
                     }})
                 }});
                 
@@ -6797,6 +6903,9 @@ def api_admin_generate_card_api_page(card_key):
                 
                 if (data.success) {{
                     if (data.mail) {{
+                        // 保存新的邮件标识符
+                        saveMailIdentifier(email, newMailIdentifier);
+                        
                         displayMailWithCardInfo(data);
                         // 添加连接状态到成功消息
                         let successMessage = '邮件获取成功';
