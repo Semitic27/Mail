@@ -223,7 +223,6 @@ CREATE INDEX IF NOT EXISTS idx_http_proxies_status_id ON http_proxies(status, id
 CREATE INDEX IF NOT EXISTS idx_socks5_proxies_status_id ON socks5_proxies(status, id);
 CREATE INDEX IF NOT EXISTS idx_http_proxies_name_host ON http_proxies(name, host);
 CREATE INDEX IF NOT EXISTS idx_socks5_proxies_name_host ON socks5_proxies(name, host);
--- CREATE INDEX IF NOT EXISTS idx_mailbox_group_mappings_group_mailbox ON mailbox_group_mappings(group_id, mailbox_id);
 
 
 -- 邮箱分组管理表

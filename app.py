@@ -1300,7 +1300,8 @@ def migrate_cards_last_mail_tracking(db, db_type):
     try:
         new_columns = [
             ('last_mail_subject', 'TEXT DEFAULT \'\'', 'TEXT DEFAULT \'\''),
-            ('last_mail_date', 'TEXT DEFAULT \'\'', 'VARCHAR(255) DEFAULT \'\'')
+            ('last_mail_date', 'TEXT DEFAULT \'\'', 'VARCHAR(255) DEFAULT \'\''),
+            ('last_mail_message_id', 'TEXT DEFAULT \'\'', 'TEXT DEFAULT \'\'')
         ]
         
         for column_name, sqlite_def, other_def in new_columns:
@@ -2912,10 +2913,17 @@ def api_view_mail():
                 mail = response_data['mail']
                 mail_subject = mail.get('subject', '')
                 mail_date = mail.get('date', '')
+                mail_message_id = mail.get('message_id', '')
                 
                 # 检查是否是同一封邮件（与上次获取的邮件比较）
+                # 优先使用message_id比较（更可靠），如果没有则使用subject+date
                 is_same_mail = False
-                if card_info.get('last_mail_subject') and card_info.get('last_mail_date'):
+                if mail_message_id and card_info.get('last_mail_message_id'):
+                    # 使用message_id比较（最可靠）
+                    if card_info['last_mail_message_id'] == mail_message_id:
+                        is_same_mail = True
+                elif card_info.get('last_mail_subject') and card_info.get('last_mail_date'):
+                    # 降级到subject+date比较
                     if (card_info['last_mail_subject'] == mail_subject and 
                         card_info['last_mail_date'] == mail_date):
                         is_same_mail = True
@@ -2928,16 +2936,16 @@ def api_view_mail():
                     if db_type == 'sqlite':
                         db.execute('''
                             UPDATE cards 
-                            SET used_count = ?, last_mail_subject = ?, last_mail_date = ?, updated_at = CURRENT_TIMESTAMP 
+                            SET used_count = ?, last_mail_subject = ?, last_mail_date = ?, last_mail_message_id = ?, updated_at = CURRENT_TIMESTAMP 
                             WHERE id = ?
-                        ''', (new_used_count, mail_subject, mail_date, card_info['id']))
+                        ''', (new_used_count, mail_subject, mail_date, mail_message_id, card_info['id']))
                     else:
                         cursor = db.cursor()
                         cursor.execute('''
                             UPDATE cards 
-                            SET used_count = %s, last_mail_subject = %s, last_mail_date = %s, updated_at = CURRENT_TIMESTAMP 
+                            SET used_count = %s, last_mail_subject = %s, last_mail_date = %s, last_mail_message_id = %s, updated_at = CURRENT_TIMESTAMP 
                             WHERE id = %s
-                        ''', (new_used_count, mail_subject, mail_date, card_info['id']))
+                        ''', (new_used_count, mail_subject, mail_date, mail_message_id, card_info['id']))
                     
                     # 记录使用日志
                     user_ip = request.environ.get('HTTP_X_FORWARDED_FOR') or request.environ.get('REMOTE_ADDR') or 'unknown'
@@ -7161,7 +7169,7 @@ def api_admin_generate_card_api_page(card_key):
         <div class="mail-preview" id="mailPreview" style="display: none;">
             <div class="preview-header">
                 <h3>📬 邮件预览</h3>
-                <p class="preview-hint">点击"查看完整邮件"按钮将扣除使用次数</p>
+                <p class="preview-hint">点击"查看完整邮件"按钮将扣除使用次数（仅限新邮件）</p>
             </div>
             <div class="preview-content">
                 <div class="preview-item">
