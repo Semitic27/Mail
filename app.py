@@ -493,6 +493,9 @@ def init_db():
             # 创建邮箱分组管理表
             create_mailbox_groups_tables(db, db_type)
             
+            # 数据库迁移：为mailbox_groups表添加mailbox_count字段
+            migrate_mailbox_groups_table(db, db_type)
+            
             # 创建管理员用户表（兼容原有PHP版本）
             create_admin_table(db, db_type)
             
@@ -1263,6 +1266,74 @@ def migrate_card_logs_table(db, db_type):
     except Exception as e:
         logger.error(f"Error during card_logs table migration: {e}")
 
+def migrate_mailbox_groups_table(db, db_type):
+    """迁移mailbox_groups表，添加mailbox_count字段"""
+    try:
+        column_name = 'mailbox_count'
+        if db_type == 'sqlite':
+            result = db.execute("PRAGMA table_info(mailbox_groups)").fetchall()
+            columns = [col[1] for col in result]
+            if column_name not in columns:
+                db.execute("ALTER TABLE mailbox_groups ADD COLUMN mailbox_count INTEGER DEFAULT 0")
+                logger.info("Added mailbox_count column to mailbox_groups table")
+                
+                # Populate mailbox_count for existing groups
+                groups = db.execute("SELECT id FROM mailbox_groups").fetchall()
+                for group in groups:
+                    count = db.execute("""
+                        SELECT COUNT(*) as cnt 
+                        FROM mailbox_group_mappings 
+                        WHERE group_id = ?
+                    """, (group['id'],)).fetchone()['cnt']
+                    db.execute("UPDATE mailbox_groups SET mailbox_count = ? WHERE id = ?", (count, group['id']))
+                logger.info("Populated mailbox_count for existing groups")
+        else:
+            cursor = db.cursor()
+            try:
+                if db_type == 'mysql':
+                    cursor.execute(f"SHOW COLUMNS FROM mailbox_groups LIKE '{column_name}'")
+                    if not cursor.fetchone():
+                        cursor.execute("ALTER TABLE mailbox_groups ADD COLUMN mailbox_count INT DEFAULT 0")
+                        logger.info("Added mailbox_count column to mailbox_groups table")
+                        
+                        # Populate mailbox_count for existing groups
+                        cursor.execute("SELECT id FROM mailbox_groups")
+                        groups = cursor.fetchall()
+                        for group_row in groups:
+                            group_id = group_row[0]
+                            cursor.execute("""
+                                SELECT COUNT(*) as cnt 
+                                FROM mailbox_group_mappings 
+                                WHERE group_id = %s
+                            """, (group_id,))
+                            count = cursor.fetchone()[0]
+                            cursor.execute("UPDATE mailbox_groups SET mailbox_count = %s WHERE id = %s", (count, group_id))
+                        logger.info("Populated mailbox_count for existing groups")
+                elif db_type == 'postgresql':
+                    cursor.execute(f"SELECT column_name FROM information_schema.columns WHERE table_name='mailbox_groups' AND column_name='{column_name}'")
+                    if not cursor.fetchone():
+                        cursor.execute("ALTER TABLE mailbox_groups ADD COLUMN mailbox_count INTEGER DEFAULT 0")
+                        logger.info("Added mailbox_count column to mailbox_groups table")
+                        
+                        # Populate mailbox_count for existing groups
+                        cursor.execute("SELECT id FROM mailbox_groups")
+                        groups = cursor.fetchall()
+                        for group_row in groups:
+                            group_id = group_row[0]
+                            cursor.execute("""
+                                SELECT COUNT(*) as cnt 
+                                FROM mailbox_group_mappings 
+                                WHERE group_id = %s
+                            """, (group_id,))
+                            count = cursor.fetchone()[0]
+                            cursor.execute("UPDATE mailbox_groups SET mailbox_count = %s WHERE id = %s", (count, group_id))
+                        logger.info("Populated mailbox_count for existing groups")
+            except Exception as e:
+                logger.error(f"Error checking/adding mailbox_count to mailbox_groups: {e}")
+        db.commit()
+    except Exception as e:
+        logger.error(f"Error during mailbox_groups table migration: {e}")
+
 def create_mailbox_groups_tables(db, db_type):
     """创建邮箱分组管理表"""
     try:
@@ -1275,6 +1346,7 @@ def create_mailbox_groups_tables(db, db_type):
                     parent_id INTEGER DEFAULT NULL,
                     sort_order INTEGER DEFAULT 0,
                     is_expanded INTEGER DEFAULT 1,
+                    mailbox_count INTEGER DEFAULT 0,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (parent_id) REFERENCES mailbox_groups(id) ON DELETE CASCADE
@@ -1310,6 +1382,7 @@ def create_mailbox_groups_tables(db, db_type):
                     parent_id INT DEFAULT NULL,
                     sort_order INT DEFAULT 0,
                     is_expanded TINYINT DEFAULT 1,
+                    mailbox_count INT DEFAULT 0,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (parent_id) REFERENCES mailbox_groups(id) ON DELETE CASCADE,
@@ -1343,6 +1416,7 @@ def create_mailbox_groups_tables(db, db_type):
                     parent_id INTEGER DEFAULT NULL,
                     sort_order INTEGER DEFAULT 0,
                     is_expanded INTEGER DEFAULT 1,
+                    mailbox_count INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (parent_id) REFERENCES mailbox_groups(id) ON DELETE CASCADE
@@ -1761,6 +1835,67 @@ def cleanup_orphaned_proxy_ids(db, db_type):
                 db.rollback()
             except:
                 pass
+
+def update_mailbox_group_count(db, db_type, group_id, delta=None):
+    """更新邮箱分组的mailbox_count字段
+    
+    Args:
+        db: 数据库连接
+        db_type: 数据库类型
+        group_id: 分组ID
+        delta: 增量值（可选）。如果提供，则增加或减少计数；如果为None，则重新计算总数
+    """
+    try:
+        if delta is not None:
+            # 增量更新
+            if db_type == 'sqlite':
+                db.execute("""
+                    UPDATE mailbox_groups 
+                    SET mailbox_count = MAX(0, mailbox_count + ?), 
+                        updated_at = ?
+                    WHERE id = ?
+                """, (delta, get_beijing_time(), group_id))
+            else:
+                cursor = db.cursor()
+                cursor.execute("""
+                    UPDATE mailbox_groups 
+                    SET mailbox_count = GREATEST(0, mailbox_count + %s), 
+                        updated_at = %s
+                    WHERE id = %s
+                """, (delta, get_beijing_time(), group_id))
+        else:
+            # 重新计算总数
+            if db_type == 'sqlite':
+                count_result = db.execute("""
+                    SELECT COUNT(*) as cnt 
+                    FROM mailbox_group_mappings 
+                    WHERE group_id = ?
+                """, (group_id,)).fetchone()
+                count = count_result['cnt'] if count_result else 0
+                db.execute("""
+                    UPDATE mailbox_groups 
+                    SET mailbox_count = ?, 
+                        updated_at = ?
+                    WHERE id = ?
+                """, (count, get_beijing_time(), group_id))
+            else:
+                cursor = db.cursor()
+                cursor.execute("""
+                    SELECT COUNT(*) as cnt 
+                    FROM mailbox_group_mappings 
+                    WHERE group_id = %s
+                """, (group_id,))
+                count = cursor.fetchone()[0]
+                cursor.execute("""
+                    UPDATE mailbox_groups 
+                    SET mailbox_count = %s, 
+                        updated_at = %s
+                    WHERE id = %s
+                """, (count, get_beijing_time(), group_id))
+        
+        logger.debug(f"Updated mailbox count for group {group_id}")
+    except Exception as e:
+        logger.error(f"Error updating mailbox group count: {e}")
 
 def reorder_mailbox_ids(db, db_type):
     """重新排序邮箱ID，确保删除后ID连续"""
@@ -2916,6 +3051,10 @@ def _add_mailbox(db, data):
                             VALUES (%s, %s, %s)
                         ''', (mailbox_id, group_id_int, now))
                         db.commit()
+                    
+                    # 更新分组的邮箱计数
+                    update_mailbox_group_count(db, db_type, group_id_int, delta=1)
+                    db.commit()
             except (ValueError, TypeError):
                 # Invalid group_id, skip mapping
                 pass
@@ -3097,6 +3236,16 @@ def _batch_add_mailbox(db, data):
     
     try:
         db.commit()
+        
+        # 批量添加完成后，更新分组的邮箱计数
+        if group_id and group_id not in ['-1', 'null', 'undefined', ''] and success_count > 0:
+            try:
+                group_id_int = int(group_id)
+                if group_id_int > 0:
+                    update_mailbox_group_count(db, db_type, group_id_int, delta=None)
+                    db.commit()
+            except (ValueError, TypeError):
+                pass
     except Exception as e:
         return jsonify({
             'success': False,
@@ -3674,15 +3823,33 @@ def _batch_delete_mailbox(db, data):
         })
     
     try:
-        if app.config['DATABASE_TYPE'] == 'sqlite':
+        db_type = app.config['DATABASE_TYPE']
+        
+        # 在删除前，获取这些邮箱所属的分组，以便更新计数
+        affected_groups = set()
+        if db_type == 'sqlite':
             placeholders = ','.join(['?' for _ in account_ids])
+            mappings = db.execute(f'SELECT DISTINCT group_id FROM mailbox_group_mappings WHERE mailbox_id IN ({placeholders})', account_ids).fetchall()
+            affected_groups = set(m['group_id'] for m in mappings)
+            
+            # 删除邮箱（CASCADE会自动删除关联的mappings）
             db.execute(f'DELETE FROM mail_accounts WHERE id IN ({placeholders})', account_ids)
             db.commit()
         else:
             cursor = db.cursor()
             placeholders = ','.join(['%s' for _ in account_ids])
+            cursor.execute(f'SELECT DISTINCT group_id FROM mailbox_group_mappings WHERE mailbox_id IN ({placeholders})', account_ids)
+            affected_groups = set(row[0] for row in cursor.fetchall())
+            
+            # 删除邮箱（CASCADE会自动删除关联的mappings）
             cursor.execute(f'DELETE FROM mail_accounts WHERE id IN ({placeholders})', account_ids)
             db.commit()
+        
+        # 更新受影响分组的计数（重新计算，因为可能有多个邮箱从同一分组删除）
+        for group_id in affected_groups:
+            update_mailbox_group_count(db, db_type, group_id, delta=None)
+        
+        db.commit()
         
         return jsonify({
             'success': True,
@@ -3722,12 +3889,12 @@ def api_mailbox_groups():
                 })
 
             if db_type == 'sqlite':
-                group_sql = 'SELECT id, name, parent_id, sort_order FROM mailbox_groups ORDER BY parent_id, sort_order, id' if compact else 'SELECT * FROM mailbox_groups ORDER BY parent_id, sort_order, id'
+                group_sql = 'SELECT id, name, parent_id, sort_order, mailbox_count FROM mailbox_groups ORDER BY parent_id, sort_order, id' if compact else 'SELECT * FROM mailbox_groups ORDER BY parent_id, sort_order, id'
                 groups = db.execute(group_sql).fetchall()
                 mappings = [] if compact else db.execute('SELECT mailbox_id, group_id FROM mailbox_group_mappings').fetchall()
             else:
                 cursor = db.cursor()
-                group_sql = 'SELECT id, name, parent_id, sort_order FROM mailbox_groups ORDER BY parent_id, sort_order, id' if compact else 'SELECT * FROM mailbox_groups ORDER BY parent_id, sort_order, id'
+                group_sql = 'SELECT id, name, parent_id, sort_order, mailbox_count FROM mailbox_groups ORDER BY parent_id, sort_order, id' if compact else 'SELECT * FROM mailbox_groups ORDER BY parent_id, sort_order, id'
                 cursor.execute(group_sql)
                 groups_data = cursor.fetchall()
                 columns = [desc[0] for desc in cursor.description]
@@ -3846,8 +4013,14 @@ def api_mailbox_groups():
                 })
             
             try:
-                # 先删除该邮箱的现有分组
+                # 获取邮箱原来所属的分组
+                old_group_id = None
                 if db_type == 'sqlite':
+                    old_mapping = db.execute('SELECT group_id FROM mailbox_group_mappings WHERE mailbox_id = ?', (mailbox_id,)).fetchone()
+                    if old_mapping:
+                        old_group_id = old_mapping['group_id']
+                    
+                    # 先删除该邮箱的现有分组
                     db.execute('DELETE FROM mailbox_group_mappings WHERE mailbox_id = ?', (mailbox_id,))
                     
                     # 如果指定了分组ID，则添加新的关联
@@ -3858,9 +4031,22 @@ def api_mailbox_groups():
                             VALUES (?, ?, ?)
                         ''', (mailbox_id, group_id, now))
                     
+                    # 更新旧分组的计数（如果存在）
+                    if old_group_id:
+                        update_mailbox_group_count(db, db_type, old_group_id, delta=-1)
+                    
+                    # 更新新分组的计数（如果指定了新分组）
+                    if group_id:
+                        update_mailbox_group_count(db, db_type, group_id, delta=1)
+                    
                     db.commit()
                 else:
                     cursor = db.cursor()
+                    cursor.execute('SELECT group_id FROM mailbox_group_mappings WHERE mailbox_id = %s', (mailbox_id,))
+                    old_mapping = cursor.fetchone()
+                    if old_mapping:
+                        old_group_id = old_mapping[0]
+                    
                     cursor.execute('DELETE FROM mailbox_group_mappings WHERE mailbox_id = %s', (mailbox_id,))
                     
                     if group_id:
@@ -3869,6 +4055,14 @@ def api_mailbox_groups():
                             INSERT INTO mailbox_group_mappings (mailbox_id, group_id, created_at)
                             VALUES (%s, %s, %s)
                         ''', (mailbox_id, group_id, now))
+                    
+                    # 更新旧分组的计数（如果存在）
+                    if old_group_id:
+                        update_mailbox_group_count(db, db_type, old_group_id, delta=-1)
+                    
+                    # 更新新分组的计数（如果指定了新分组）
+                    if group_id:
+                        update_mailbox_group_count(db, db_type, group_id, delta=1)
                     
                     db.commit()
                 
