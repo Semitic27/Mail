@@ -1291,7 +1291,7 @@ def migrate_mailbox_groups_table(db, db_type):
             cursor = db.cursor()
             try:
                 if db_type == 'mysql':
-                    cursor.execute(f"SHOW COLUMNS FROM mailbox_groups LIKE '{column_name}'")
+                    cursor.execute("SHOW COLUMNS FROM mailbox_groups LIKE %s", (column_name,))
                     if not cursor.fetchone():
                         cursor.execute("ALTER TABLE mailbox_groups ADD COLUMN mailbox_count INT DEFAULT 0")
                         logger.info("Added mailbox_count column to mailbox_groups table")
@@ -1310,7 +1310,7 @@ def migrate_mailbox_groups_table(db, db_type):
                             cursor.execute("UPDATE mailbox_groups SET mailbox_count = %s WHERE id = %s", (count, group_id))
                         logger.info("Populated mailbox_count for existing groups")
                 elif db_type == 'postgresql':
-                    cursor.execute(f"SELECT column_name FROM information_schema.columns WHERE table_name='mailbox_groups' AND column_name='{column_name}'")
+                    cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name='mailbox_groups' AND column_name=%s", (column_name,))
                     if not cursor.fetchone():
                         cursor.execute("ALTER TABLE mailbox_groups ADD COLUMN mailbox_count INTEGER DEFAULT 0")
                         logger.info("Added mailbox_count column to mailbox_groups table")
@@ -3889,12 +3889,12 @@ def api_mailbox_groups():
                 })
 
             if db_type == 'sqlite':
-                group_sql = 'SELECT id, name, parent_id, sort_order, mailbox_count FROM mailbox_groups ORDER BY parent_id, sort_order, id' if compact else 'SELECT * FROM mailbox_groups ORDER BY parent_id, sort_order, id'
+                group_sql = 'SELECT id, name, parent_id, sort_order, mailbox_count FROM mailbox_groups ORDER BY parent_id, sort_order, id' if compact else 'SELECT id, name, parent_id, sort_order, is_expanded, mailbox_count, created_at, updated_at FROM mailbox_groups ORDER BY parent_id, sort_order, id'
                 groups = db.execute(group_sql).fetchall()
                 mappings = [] if compact else db.execute('SELECT mailbox_id, group_id FROM mailbox_group_mappings').fetchall()
             else:
                 cursor = db.cursor()
-                group_sql = 'SELECT id, name, parent_id, sort_order, mailbox_count FROM mailbox_groups ORDER BY parent_id, sort_order, id' if compact else 'SELECT * FROM mailbox_groups ORDER BY parent_id, sort_order, id'
+                group_sql = 'SELECT id, name, parent_id, sort_order, mailbox_count FROM mailbox_groups ORDER BY parent_id, sort_order, id' if compact else 'SELECT id, name, parent_id, sort_order, is_expanded, mailbox_count, created_at, updated_at FROM mailbox_groups ORDER BY parent_id, sort_order, id'
                 cursor.execute(group_sql)
                 groups_data = cursor.fetchall()
                 columns = [desc[0] for desc in cursor.description]

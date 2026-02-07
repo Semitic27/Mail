@@ -2453,9 +2453,10 @@
             }
             
             // Load groups and available emails for this card
+            // Note: available-emails endpoint filters out bound mailboxes, so the result set is typically much smaller
             const [groupsResponse, availableEmailsResponse] = await Promise.all([
                 fetch('/admin/api/mailbox-groups'),
-                fetch(`/admin/api/cards/${cardId}/available-emails?per_page=100000`)
+                fetch(`/admin/api/cards/${cardId}/available-emails?per_page=10000`)
             ]);
             
             const groupsData = await groupsResponse.json();
@@ -2466,6 +2467,12 @@
                 allMailboxes = availableEmailsData.data || [];
                 allMailboxGroups = groupsData.groups || [];
                 allMailboxGroupMappings = groupsData.mappings || [];
+                
+                // Check if we hit the page limit and warn user
+                if (availableEmailsData.pagination && 
+                    availableEmailsData.data.length >= availableEmailsData.pagination.per_page) {
+                    showToast('注意：可用邮箱数量较多，可能未完全加载。请使用搜索功能。', 'warning');
+                }
                 
                 // Filter mappings to only include available mailboxes
                 const availableMailboxIds = new Set(allMailboxes.map(m => m.id));
