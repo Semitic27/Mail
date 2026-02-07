@@ -5982,10 +5982,26 @@ def api_admin_generate_card_api_page(card_key):
         has_bound_email = card_result.get('bound_email_id') is not None and card_result.get('email') is not None
         bound_email = card_result.get('email') if has_bound_email else None
         
+        # 获取卡密使用信息
+        used_count = card_result.get('used_count', 0)
+        usage_limit = card_result.get('usage_limit', 1)
+        remaining_uses = max(0, usage_limit - used_count)
+        
+        # 卡密使用信息显示部分
+        usage_info_section = f"""
+            <div class="usage-info-section">
+                <div class="usage-info-card">
+                    <span class="usage-label">剩余次数：</span>
+                    <span class="usage-count" id="remainingUses">{remaining_uses}</span>
+                    <span class="usage-total"> / {usage_limit}</span>
+                </div>
+            </div>"""
+        
         # 根据绑定状态生成不同的API页面内容
         if has_bound_email:
             # 已绑定邮箱：显示绑定的邮箱、复制按钮和获取邮件按钮
             input_section = f"""
+            {usage_info_section}
             <div class="bound-email-section">
                 <div class="email-display-row">
                     <div class="email-info">
@@ -6001,6 +6017,7 @@ def api_admin_generate_card_api_page(card_key):
         else:
             # 未绑定邮箱：页面仅有输入框和"获取邮件"按钮
             input_section = f"""
+            {usage_info_section}
             <div class="input-group">
                 <input type="email" id="emailInput" placeholder="请输入邮箱地址" required>
                 <button class="get-mail-btn" onclick="getMail()">获取邮件</button>
@@ -6546,6 +6563,160 @@ def api_admin_generate_card_api_page(card_key):
             font-weight: 600;
         }}
         
+        /* Usage Info Section */
+        .usage-info-section {{
+            margin-bottom: 20px;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }}
+        
+        .usage-info-card {{
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: white;
+            font-size: 18px;
+        }}
+        
+        .usage-label {{
+            font-weight: 600;
+        }}
+        
+        .usage-count {{
+            font-size: 32px;
+            font-weight: bold;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }}
+        
+        .usage-total {{
+            font-size: 20px;
+            opacity: 0.9;
+        }}
+        
+        /* Confirmation Dialog */
+        .confirm-dialog-overlay {{
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.6);
+            z-index: 5000;
+            justify-content: center;
+            align-items: center;
+        }}
+        
+        .confirm-dialog-overlay.show {{
+            display: flex;
+        }}
+        
+        .confirm-dialog {{
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            animation: slideIn 0.3s ease-out;
+        }}
+        
+        @keyframes slideIn {{
+            from {{
+                transform: translateY(-50px);
+                opacity: 0;
+            }}
+            to {{
+                transform: translateY(0);
+                opacity: 1;
+            }}
+        }}
+        
+        .confirm-dialog-icon {{
+            font-size: 48px;
+            text-align: center;
+            margin-bottom: 20px;
+        }}
+        
+        .confirm-dialog-title {{
+            font-size: 22px;
+            font-weight: 600;
+            color: #1e293b;
+            text-align: center;
+            margin-bottom: 15px;
+        }}
+        
+        .confirm-dialog-message {{
+            font-size: 16px;
+            color: #6b7280;
+            text-align: center;
+            line-height: 1.6;
+            margin-bottom: 25px;
+        }}
+        
+        .confirm-dialog-usage-info {{
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            border-left: 4px solid #667eea;
+        }}
+        
+        .confirm-dialog-usage-text {{
+            font-size: 14px;
+            color: #6b7280;
+            margin-bottom: 8px;
+        }}
+        
+        .confirm-dialog-usage-count {{
+            font-size: 28px;
+            font-weight: bold;
+            color: #667eea;
+        }}
+        
+        .confirm-dialog-buttons {{
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }}
+        
+        .confirm-dialog-btn {{
+            padding: 12px 28px;
+            border-radius: 10px;
+            border: none;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }}
+        
+        .confirm-dialog-btn.confirm {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }}
+        
+        .confirm-dialog-btn.confirm:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }}
+        
+        .confirm-dialog-btn.cancel {{
+            background: #e5e7eb;
+            color: #374151;
+        }}
+        
+        .confirm-dialog-btn.cancel:hover {{
+            background: #d1d5db;
+        }}
+        
+        .confirm-dialog-btn:active {{
+            transform: translateY(0);
+        }}
+        
         /* Toast Notifications */
         .toast-container {{
             position: fixed;
@@ -6639,6 +6810,26 @@ def api_admin_generate_card_api_page(card_key):
 <body>
     <!-- Toast notification container -->
     <div id="toast-container" class="toast-container"></div>
+    
+    <!-- Confirmation Dialog -->
+    <div id="confirmDialog" class="confirm-dialog-overlay">
+        <div class="confirm-dialog">
+            <div class="confirm-dialog-icon">⚠️</div>
+            <div class="confirm-dialog-title">确认获取邮件</div>
+            <div class="confirm-dialog-message">
+                点击确认后将消耗一次使用次数。<br>
+                请确保页面加载完成后再查看邮件，避免浪费使用次数。
+            </div>
+            <div class="confirm-dialog-usage-info">
+                <div class="confirm-dialog-usage-text">剩余使用次数</div>
+                <div class="confirm-dialog-usage-count" id="dialogRemainingUses">{remaining_uses}</div>
+            </div>
+            <div class="confirm-dialog-buttons">
+                <button class="confirm-dialog-btn cancel" onclick="closeConfirmDialog()">取消</button>
+                <button class="confirm-dialog-btn confirm" onclick="confirmGetMail()">确认获取</button>
+            </div>
+        </div>
+    </div>
     
     <div class="container">
         <div class="header">
@@ -6748,10 +6939,17 @@ def api_admin_generate_card_api_page(card_key):
             }});
         }}
         
-        async function getMail() {{
-            const loading = document.getElementById('loading');
-            const mailDisplay = document.getElementById('mailDisplay');
-            const getMailBtn = document.querySelector('.get-mail-btn');
+        // Card usage tracking variables
+        const initialRemainingUses = {remaining_uses};
+        let currentRemainingUses = initialRemainingUses;
+        
+        // Show confirmation dialog before fetching mail
+        function getMail() {{
+            // Check if remaining uses is 0
+            if (currentRemainingUses <= 0) {{
+                showToast('使用次数已用完，无法获取邮件', 'error');
+                return;
+            }}
             
             let email;
             
@@ -6773,6 +6971,32 @@ def api_admin_generate_card_api_page(card_key):
                     return;
                 }}
             }}
+            
+            // Store email for later use and show confirmation dialog
+            window.pendingEmail = email;
+            showConfirmDialog();
+        }}
+        
+        // Show confirmation dialog
+        function showConfirmDialog() {{
+            document.getElementById('confirmDialog').classList.add('show');
+            document.body.style.overflow = 'hidden';
+        }}
+        
+        // Close confirmation dialog
+        function closeConfirmDialog() {{
+            document.getElementById('confirmDialog').classList.remove('show');
+            document.body.style.overflow = '';
+        }}
+        
+        // Confirm and proceed with mail fetch
+        async function confirmGetMail() {{
+            closeConfirmDialog();
+            
+            const loading = document.getElementById('loading');
+            const mailDisplay = document.getElementById('mailDisplay');
+            const getMailBtn = document.querySelector('.get-mail-btn');
+            const email = window.pendingEmail;
             
             // 显示加载状态
             loading.style.display = 'block';
@@ -6796,6 +7020,13 @@ def api_admin_generate_card_api_page(card_key):
                 const data = await response.json();
                 
                 if (data.success) {{
+                    // Update remaining uses count if card_info is present
+                    if (data.card_info && data.card_info.remaining_uses !== undefined) {{
+                        currentRemainingUses = data.card_info.remaining_uses;
+                        document.getElementById('remainingUses').textContent = currentRemainingUses;
+                        document.getElementById('dialogRemainingUses').textContent = currentRemainingUses;
+                    }}
+                    
                     if (data.mail) {{
                         displayMailWithCardInfo(data);
                         // 添加连接状态到成功消息
