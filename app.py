@@ -2759,18 +2759,11 @@ def api_preview_mail():
             if response_data.get('success') and response_data.get('mail'):
                 mail = response_data['mail']
                 
-                # 生成缓存键（基于卡密和邮箱）
-                cache_key = f"mail_cache_{card_key}_{email}"
-                
-                # 缓存完整邮件内容到 session，包含时间戳
-                session[cache_key] = {
-                    'mail_data': response_data,
-                    'timestamp': time.time()
-                }
-                
-                # 只返回预览信息（标题、发件人、时间）
+                # 不再在服务器端缓存，直接返回完整邮件数据给客户端
+                # 客户端将负责缓存到浏览器 localStorage
                 preview_data = {
                     'success': True,
+                    'mail': mail,  # 返回完整邮件数据
                     'preview': {
                         'subject': mail.get('subject', '(无主题)'),
                         'from': mail.get('from', '未知'),
@@ -2782,7 +2775,7 @@ def api_preview_mail():
                         'used_count': card_info['used_count']
                     },
                     'proxy': response_data.get('proxy', {}),
-                    'cached': True  # 标识内容已缓存
+                    'cache_in_browser': True  # 标识应该在浏览器中缓存
                 }
                 return jsonify(preview_data)
             else:
@@ -2901,27 +2894,23 @@ def api_view_mail():
                     'message': f'此卡密只能用于邮箱: {card_info["bound_email"]}'
                 })
         
-        # 检查是否有缓存的邮件内容
-        cache_key = f"mail_cache_{card_key}_{email}"
-        cached_data = session.get(cache_key)
+        # 不再从服务器 session 读取缓存
+        # 客户端将从 localStorage 读取缓存并传递邮件数据
         
-        # 验证缓存是否有效（存在且未过期）
-        use_cache = False
-        if cached_data and 'mail_data' in cached_data and 'timestamp' in cached_data:
-            cache_age = time.time() - cached_data['timestamp']
-            if cache_age < MAIL_PREVIEW_CACHE_TIMEOUT:
-                use_cache = True
-                logger.info(f"Using cached mail content for {card_key}, age: {cache_age:.1f}s")
-            else:
-                logger.info(f"Cache expired for {card_key}, age: {cache_age:.1f}s")
-                # 清除过期缓存
-                session.pop(cache_key, None)
+        # 检查客户端是否提供了缓存的邮件数据
+        cached_mail = data.get('cached_mail')
+        from_client_cache = False
         
-        # 如果有有效缓存，使用缓存的数据
-        if use_cache:
-            response_data = cached_data['mail_data']
+        if cached_mail:
+            # 客户端提供了缓存数据，直接使用
+            logger.info(f"Using client-provided cached mail for {card_key}")
+            from_client_cache = True
+            response_data = {
+                'success': True,
+                'mail': cached_mail
+            }
         else:
-            # 没有缓存或缓存过期，重新获取邮件
+            # 没有缓存，需要重新获取邮件
             logger.info(f"Fetching mail from server for {card_key}")
             
             # 调用Python邮件获取器脚本
@@ -3022,7 +3011,7 @@ def api_view_mail():
                     'total_uses': card_info['usage_limit'],
                     'used_count': new_used_count,
                     'count_deducted': True,
-                    'from_cache': use_cache
+                    'from_cache': from_client_cache
                 }
             else:
                 # 同一封邮件，不扣除次数
@@ -3032,7 +3021,7 @@ def api_view_mail():
                     'used_count': card_info['used_count'],
                     'count_deducted': False,
                     'is_same_mail': True,
-                    'from_cache': use_cache
+                    'from_cache': from_client_cache
                 }
             
             return jsonify(response_data)
@@ -7310,6 +7299,85 @@ def api_admin_generate_card_api_page(card_key):
             document.body.removeChild(textArea);
         }}
         
+        // ==================== 浏览器端缓存管理 ====================
+        const CACHE_TIMEOUT = {MAIL_PREVIEW_CACHE_TIMEOUT}000; // 转换为毫秒
+        
+        // 生成缓存键
+        function getCacheKey(email) {{
+            return `mail_cache_{card_key}_${{email}}`;
+        }}
+        
+        // 保存邮件到浏览器缓存
+        function saveMailToCache(email, mailData) {{
+            try {{
+                const cacheKey = getCacheKey(email);
+                const cacheData = {{
+                    mail: mailData,
+                    timestamp: Date.now(),
+                    email: email
+                }};
+                localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+                console.log('邮件已缓存到浏览器 localStorage');
+            }} catch (e) {{
+                console.error('缓存邮件失败:', e);
+            }}
+        }}
+        
+        // 从浏览器缓存读取邮件
+        function getMailFromCache(email) {{
+            try {{
+                const cacheKey = getCacheKey(email);
+                const cacheStr = localStorage.getItem(cacheKey);
+                
+                if (!cacheStr) {{
+                    console.log('浏览器缓存中无数据');
+                    return null;
+                }}
+                
+                const cacheData = JSON.parse(cacheStr);
+                const cacheAge = Date.now() - cacheData.timestamp;
+                
+                if (cacheAge > CACHE_TIMEOUT) {{
+                    console.log(`缓存已过期 (年龄: ${{cacheAge}}ms > ${{CACHE_TIMEOUT}}ms)`);
+                    localStorage.removeItem(cacheKey);
+                    return null;
+                }}
+                
+                console.log(`使用浏览器缓存 (年龄: ${{cacheAge}}ms)`);
+                return cacheData.mail;
+            }} catch (e) {{
+                console.error('读取缓存失败:', e);
+                return null;
+            }}
+        }}
+        
+        // 清除指定邮件的缓存
+        function clearMailCache(email) {{
+            try {{
+                const cacheKey = getCacheKey(email);
+                localStorage.removeItem(cacheKey);
+                console.log('已清除缓存');
+            }} catch (e) {{
+                console.error('清除缓存失败:', e);
+            }}
+        }}
+        
+        // 比较两封邮件是否相同（在浏览器端完成）
+        function isSameMail(mail1, mail2) {{
+            // 优先比较 message_id
+            if (mail1.message_id && mail2.message_id) {{
+                return mail1.message_id === mail2.message_id;
+            }}
+            
+            // 降级比较 subject + date
+            if (mail1.subject && mail1.date && mail2.subject && mail2.date) {{
+                return mail1.subject === mail2.subject && mail1.date === mail2.date;
+            }}
+            
+            return false;
+        }}
+        // ==================== 缓存管理结束 ====================
+        
         // 回车键触发获取邮件（仅在有输入框时）
         const emailInput = document.getElementById('emailInput');
         if (emailInput) {{
@@ -7370,11 +7438,16 @@ def api_admin_generate_card_api_page(card_key):
                 const data = await response.json();
                 
                 if (data.success && data.preview) {{
+                    // 如果返回了完整邮件数据，缓存到浏览器
+                    if (data.mail) {{
+                        saveMailToCache(email, data.mail);
+                    }}
+                    
                     // 显示邮件预览
                     displayMailPreview(data.preview, email);
                     
                     // 添加连接状态到成功消息
-                    let successMessage = '邮件标题获取成功';
+                    let successMessage = '邮件标题获取成功（已缓存到浏览器）';
                     if (data.proxy && data.proxy.enabled) {{
                         successMessage += ' (代理)';
                     }} else {{
@@ -7439,6 +7512,21 @@ def api_admin_generate_card_api_page(card_key):
                 return;
             }}
             
+            // 首先检查浏览器缓存
+            const cachedMail = getMailFromCache(email);
+            
+            if (cachedMail) {{
+                // 使用浏览器缓存的数据
+                console.log('使用浏览器缓存显示邮件');
+                mailPreview.style.display = 'none';
+                displayMail(cachedMail);
+                showToast('邮件已从浏览器缓存加载（秒开！）', 'success', 3000);
+                return;
+            }}
+            
+            // 缓存不存在或已过期，需要从服务器获取
+            console.log('浏览器缓存无效，从服务器获取');
+            
             // 显示加载状态
             loading.style.display = 'block';
             viewMailBtn.disabled = true;
@@ -7453,7 +7541,8 @@ def api_admin_generate_card_api_page(card_key):
                     }},
                     body: JSON.stringify({{ 
                         email: email,
-                        card_key: '{card_key}'
+                        card_key: '{card_key}',
+                        cached_mail: null  // 客户端没有有效缓存
                     }})
                 }});
                 
@@ -7463,6 +7552,9 @@ def api_admin_generate_card_api_page(card_key):
                     // 隐藏预览，显示完整邮件
                     mailPreview.style.display = 'none';
                     displayMail(data.mail);
+                    
+                    // 重新缓存到浏览器（更新缓存）
+                    saveMailToCache(email, data.mail);
                     
                     // 显示卡密使用信息
                     if (data.card_info) {{
