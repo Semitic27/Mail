@@ -490,6 +490,9 @@ def init_db():
             # 数据库迁移：为card_logs表添加邮件主题字段
             migrate_card_logs_table(db, db_type)
             
+            # 数据库迁移：为cards表添加最后邮件跟踪字段
+            migrate_cards_last_mail_tracking(db, db_type)
+            
             # 创建邮箱分组管理表
             create_mailbox_groups_tables(db, db_type)
             
@@ -1291,6 +1294,41 @@ def migrate_card_logs_table(db, db_type):
         db.commit()
     except Exception as e:
         logger.error(f"Error during card_logs table migration: {e}")
+
+def migrate_cards_last_mail_tracking(db, db_type):
+    """迁移cards表，添加最后获取邮件的跟踪字段"""
+    try:
+        new_columns = [
+            ('last_mail_subject', 'TEXT DEFAULT \'\'', 'TEXT DEFAULT \'\''),
+            ('last_mail_date', 'TEXT DEFAULT \'\'', 'VARCHAR(255) DEFAULT \'\'')
+        ]
+        
+        for column_name, sqlite_def, other_def in new_columns:
+            if db_type == 'sqlite':
+                result = db.execute("PRAGMA table_info(cards)").fetchall()
+                columns = [col[1] for col in result]
+                if column_name not in columns:
+                    db.execute(f'ALTER TABLE cards ADD COLUMN {column_name} {sqlite_def}')
+                    logger.info(f"Added {column_name} column to cards table")
+            else:
+                cursor = db.cursor()
+                try:
+                    if db_type == 'mysql':
+                        cursor.execute(f"SHOW COLUMNS FROM cards LIKE '{column_name}'")
+                        if not cursor.fetchone():
+                            cursor.execute(f'ALTER TABLE cards ADD COLUMN {column_name} {other_def}')
+                            logger.info(f"Added {column_name} column to cards table")
+                    elif db_type == 'postgresql':
+                        cursor.execute(f"SELECT column_name FROM information_schema.columns WHERE table_name='cards' AND column_name='{column_name}'")
+                        if not cursor.fetchone():
+                            cursor.execute(f'ALTER TABLE cards ADD COLUMN {column_name} {other_def}')
+                            logger.info(f"Added {column_name} column to cards table")
+                except Exception as e:
+                    logger.error(f"Error checking/adding {column_name} to cards: {e}")
+        
+        db.commit()
+    except Exception as e:
+        logger.error(f"Error during cards last mail tracking migration: {e}")
 
 def migrate_mailbox_groups_table(db, db_type):
     """迁移mailbox_groups表，添加mailbox_count字段"""
@@ -2599,6 +2637,369 @@ def api_get_mail():
         return jsonify({
             'success': False,
             'message': f'服务器错误: {str(e)}'
+        })
+
+@app.route('/api/preview_mail', methods=['POST'])
+def api_preview_mail():
+    """预览邮件 API - 仅返回邮件标题和时间，不扣除使用次数"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'message': '请求数据无效'
+            })
+            
+        email = data.get('email', '').strip()
+        card_key = data.get('card_key', '') or request.headers.get('X-Card-Key', '')
+        
+        # 验证请求参数
+        if not email:
+            return jsonify({
+                'success': False,
+                'message': '请提供邮箱地址'
+            })
+        
+        if not card_key:
+            return jsonify({
+                'success': False,
+                'message': '请提供卡密'
+            })
+        
+        # 获取数据库连接
+        db = get_db()
+        db_type = app.config['DATABASE_TYPE']
+        
+        # 查询卡密信息
+        if db_type == 'sqlite':
+            card_result = db.execute('''
+                SELECT c.*, e.email as bound_email 
+                FROM cards c 
+                LEFT JOIN mail_accounts e ON c.bound_email_id = e.id 
+                WHERE c.card_key = ?
+            ''', (card_key,)).fetchone()
+        else:
+            cursor = db.cursor()
+            cursor.execute('''
+                SELECT c.*, e.email as bound_email 
+                FROM cards c 
+                LEFT JOIN mail_accounts e ON c.bound_email_id = e.id 
+                WHERE c.card_key = %s
+            ''', (card_key,))
+            card_result = cursor.fetchone()
+        
+        if not card_result:
+            return jsonify({
+                'success': False,
+                'message': '卡密不存在或已失效'
+            })
+        
+        # 转换为字典
+        if db_type == 'sqlite':
+            card_info = dict(card_result)
+        else:
+            columns = [desc[0] for desc in cursor.description]
+            card_info = dict(zip(columns, card_result))
+        
+        # 验证卡密状态
+        now = get_beijing_time()
+        
+        if card_info['status'] != 1:
+            return jsonify({
+                'success': False,
+                'message': '卡密已被禁用'
+            })
+        
+        if card_info['expired_at'] and card_info['expired_at'] <= now:
+            return jsonify({
+                'success': False,
+                'message': '卡密已过期'
+            })
+        
+        if card_info['used_count'] >= card_info['usage_limit']:
+            return jsonify({
+                'success': False,
+                'message': '卡密使用次数已用完'
+            })
+        
+        # 如果卡密绑定了邮箱，检查邮箱是否匹配
+        if card_info['bound_email_id'] and card_info['bound_email']:
+            if email != card_info['bound_email']:
+                return jsonify({
+                    'success': False,
+                    'message': f'此卡密只能用于邮箱: {card_info["bound_email"]}'
+                })
+        
+        # 调用Python邮件获取器脚本
+        script_args = [
+            sys.executable, 
+            os.path.join(os.path.dirname(__file__), 'python', 'mail_fetcher.py'),
+            email
+        ]
+        
+        # 添加卡密过滤参数
+        if card_info.get('email_days_filter'):
+            script_args.extend(['--days-filter', str(card_info['email_days_filter'])])
+        
+        if card_info.get('sender_filter'):
+            script_args.extend(['--sender-filter', card_info['sender_filter']])
+        
+        if card_info.get('keyword_filter'):
+            script_args.extend(['--keyword-filter', card_info['keyword_filter']])
+        
+        result = subprocess.run(script_args, capture_output=True, text=True, timeout=30)
+        
+        if result.returncode == 0:
+            response_data = json.loads(result.stdout)
+            
+            if response_data.get('success') and response_data.get('mail'):
+                mail = response_data['mail']
+                # 只返回预览信息（标题、发件人、时间）
+                preview_data = {
+                    'success': True,
+                    'preview': {
+                        'subject': mail.get('subject', '(无主题)'),
+                        'from': mail.get('from', '未知'),
+                        'date': mail.get('date', '未知')
+                    },
+                    'card_info': {
+                        'remaining_uses': card_info['usage_limit'] - card_info['used_count'],
+                        'total_uses': card_info['usage_limit'],
+                        'used_count': card_info['used_count']
+                    },
+                    'proxy': response_data.get('proxy', {})
+                }
+                return jsonify(preview_data)
+            else:
+                return jsonify(response_data)
+        else:
+            return jsonify({
+                'success': False,
+                'message': f'邮件获取失败: {result.stderr or "未知错误"}'
+            })
+            
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'success': False,
+            'message': '邮件获取超时，请稍后重试'
+        })
+    except json.JSONDecodeError:
+        return jsonify({
+            'success': False,
+            'message': '邮件服务响应格式错误'
+        })
+    except Exception as e:
+        logger.error(f"Error in preview_mail: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'邮件服务错误: {str(e)}'
+        })
+
+@app.route('/api/view_mail', methods=['POST'])
+def api_view_mail():
+    """查看完整邮件 API - 返回完整邮件内容，并在是新邮件时扣除使用次数"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'message': '请求数据无效'
+            })
+            
+        email = data.get('email', '').strip()
+        card_key = data.get('card_key', '') or request.headers.get('X-Card-Key', '')
+        
+        # 验证请求参数
+        if not email:
+            return jsonify({
+                'success': False,
+                'message': '请提供邮箱地址'
+            })
+        
+        if not card_key:
+            return jsonify({
+                'success': False,
+                'message': '请提供卡密'
+            })
+        
+        # 获取数据库连接
+        db = get_db()
+        db_type = app.config['DATABASE_TYPE']
+        
+        # 查询卡密信息
+        if db_type == 'sqlite':
+            card_result = db.execute('''
+                SELECT c.*, e.email as bound_email 
+                FROM cards c 
+                LEFT JOIN mail_accounts e ON c.bound_email_id = e.id 
+                WHERE c.card_key = ?
+            ''', (card_key,)).fetchone()
+        else:
+            cursor = db.cursor()
+            cursor.execute('''
+                SELECT c.*, e.email as bound_email 
+                FROM cards c 
+                LEFT JOIN mail_accounts e ON c.bound_email_id = e.id 
+                WHERE c.card_key = %s
+            ''', (card_key,))
+            card_result = cursor.fetchone()
+        
+        if not card_result:
+            return jsonify({
+                'success': False,
+                'message': '卡密不存在或已失效'
+            })
+        
+        # 转换为字典
+        if db_type == 'sqlite':
+            card_info = dict(card_result)
+        else:
+            columns = [desc[0] for desc in cursor.description]
+            card_info = dict(zip(columns, card_result))
+        
+        # 验证卡密状态
+        now = get_beijing_time()
+        
+        if card_info['status'] != 1:
+            return jsonify({
+                'success': False,
+                'message': '卡密已被禁用'
+            })
+        
+        if card_info['expired_at'] and card_info['expired_at'] <= now:
+            return jsonify({
+                'success': False,
+                'message': '卡密已过期'
+            })
+        
+        if card_info['used_count'] >= card_info['usage_limit']:
+            return jsonify({
+                'success': False,
+                'message': '卡密使用次数已用完'
+            })
+        
+        # 如果卡密绑定了邮箱，检查邮箱是否匹配
+        if card_info['bound_email_id'] and card_info['bound_email']:
+            if email != card_info['bound_email']:
+                return jsonify({
+                    'success': False,
+                    'message': f'此卡密只能用于邮箱: {card_info["bound_email"]}'
+                })
+        
+        # 调用Python邮件获取器脚本
+        script_args = [
+            sys.executable, 
+            os.path.join(os.path.dirname(__file__), 'python', 'mail_fetcher.py'),
+            email
+        ]
+        
+        # 添加卡密过滤参数
+        if card_info.get('email_days_filter'):
+            script_args.extend(['--days-filter', str(card_info['email_days_filter'])])
+        
+        if card_info.get('sender_filter'):
+            script_args.extend(['--sender-filter', card_info['sender_filter']])
+        
+        if card_info.get('keyword_filter'):
+            script_args.extend(['--keyword-filter', card_info['keyword_filter']])
+        
+        result = subprocess.run(script_args, capture_output=True, text=True, timeout=30)
+        
+        if result.returncode == 0:
+            response_data = json.loads(result.stdout)
+            
+            if response_data.get('success') and response_data.get('mail'):
+                mail = response_data['mail']
+                mail_subject = mail.get('subject', '')
+                mail_date = mail.get('date', '')
+                
+                # 检查是否是同一封邮件（与上次获取的邮件比较）
+                is_same_mail = False
+                if card_info.get('last_mail_subject') and card_info.get('last_mail_date'):
+                    if (card_info['last_mail_subject'] == mail_subject and 
+                        card_info['last_mail_date'] == mail_date):
+                        is_same_mail = True
+                
+                # 如果不是同一封邮件，则扣除使用次数
+                if not is_same_mail:
+                    new_used_count = card_info['used_count'] + 1
+                    
+                    # 更新卡密使用次数和最后邮件信息
+                    if db_type == 'sqlite':
+                        db.execute('''
+                            UPDATE cards 
+                            SET used_count = ?, last_mail_subject = ?, last_mail_date = ?, updated_at = CURRENT_TIMESTAMP 
+                            WHERE id = ?
+                        ''', (new_used_count, mail_subject, mail_date, card_info['id']))
+                    else:
+                        cursor = db.cursor()
+                        cursor.execute('''
+                            UPDATE cards 
+                            SET used_count = %s, last_mail_subject = %s, last_mail_date = %s, updated_at = CURRENT_TIMESTAMP 
+                            WHERE id = %s
+                        ''', (new_used_count, mail_subject, mail_date, card_info['id']))
+                    
+                    # 记录使用日志
+                    user_ip = request.environ.get('HTTP_X_FORWARDED_FOR') or request.environ.get('REMOTE_ADDR') or 'unknown'
+                    user_agent = request.headers.get('User-Agent', 'unknown')
+                    bound_email = card_info.get('bound_email', email) or email
+                    
+                    if db_type == 'sqlite':
+                        db.execute('''
+                            INSERT INTO card_logs (card_id, card_key, bound_email, user_ip, user_agent, action, result, mail_subject, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (card_info['id'], card_key, bound_email, user_ip, user_agent, 'view', 
+                              f'查看邮件: {mail_subject}', mail_subject, now))
+                    else:
+                        cursor = db.cursor()
+                        cursor.execute('''
+                            INSERT INTO card_logs (card_id, card_key, bound_email, user_ip, user_agent, action, result, mail_subject, created_at)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ''', (card_info['id'], card_key, bound_email, user_ip, user_agent, 'view', 
+                              f'查看邮件: {mail_subject}', mail_subject, now))
+                    
+                    db.commit()
+                    
+                    response_data['card_info'] = {
+                        'remaining_uses': card_info['usage_limit'] - new_used_count,
+                        'total_uses': card_info['usage_limit'],
+                        'used_count': new_used_count,
+                        'count_deducted': True
+                    }
+                else:
+                    # 同一封邮件，不扣除次数
+                    response_data['card_info'] = {
+                        'remaining_uses': card_info['usage_limit'] - card_info['used_count'],
+                        'total_uses': card_info['usage_limit'],
+                        'used_count': card_info['used_count'],
+                        'count_deducted': False,
+                        'is_same_mail': True
+                    }
+                
+                return jsonify(response_data)
+            else:
+                return jsonify(response_data)
+        else:
+            return jsonify({
+                'success': False,
+                'message': f'邮件获取失败: {result.stderr or "未知错误"}'
+            })
+            
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'success': False,
+            'message': '邮件获取超时，请稍后重试'
+        })
+    except json.JSONDecodeError:
+        return jsonify({
+            'success': False,
+            'message': '邮件服务响应格式错误'
+        })
+    except Exception as e:
+        logger.error(f"Error in view_mail: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'邮件服务错误: {str(e)}'
         })
 
 def move_card_to_recycle_bin(db, db_type, card_id, recycle_type='deleted', reason=''):
@@ -6309,6 +6710,103 @@ def api_admin_generate_card_api_page(card_key):
             font-size: 20px;
         }}
         
+        /* Mail Preview Styles */
+        .mail-preview {{
+            display: none;
+            background: white;
+            border-radius: 15px;
+            padding: 28px;
+            margin-top: 25px;
+            border: 2px solid #667eea;
+            box-shadow: 0 18px 36px rgba(102, 126, 234, 0.15);
+            width: 100%;
+        }}
+        
+        .preview-header {{
+            text-align: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 15px;
+        }}
+        
+        .preview-header h3 {{
+            color: #667eea;
+            font-size: 24px;
+            margin-bottom: 8px;
+        }}
+        
+        .preview-hint {{
+            color: #f59e0b;
+            font-size: 14px;
+            font-weight: 600;
+            background: #fef3c7;
+            padding: 8px 16px;
+            border-radius: 8px;
+            display: inline-block;
+            margin-top: 8px;
+        }}
+        
+        .preview-content {{
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }}
+        
+        .preview-item {{
+            display: flex;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #e5e7eb;
+        }}
+        
+        .preview-item:last-child {{
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }}
+        
+        .preview-label {{
+            font-weight: 600;
+            color: #64748b;
+            min-width: 80px;
+            margin-right: 15px;
+        }}
+        
+        .preview-value {{
+            flex: 1;
+            color: #1e293b;
+            word-break: break-word;
+        }}
+        
+        .preview-actions {{
+            text-align: center;
+        }}
+        
+        .view-mail-btn {{
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            min-width: 180px;
+        }}
+        
+        .view-mail-btn:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(16, 185, 129, 0.3);
+        }}
+        
+        .view-mail-btn:disabled {{
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }}
+        
         .mail-display {{
             display: none;
             background: white;
@@ -6659,6 +7157,31 @@ def api_admin_generate_card_api_page(card_key):
             </div>
         </div>
         
+        <!-- Mail Preview Card -->
+        <div class="mail-preview" id="mailPreview" style="display: none;">
+            <div class="preview-header">
+                <h3>📬 邮件预览</h3>
+                <p class="preview-hint">点击"查看完整邮件"按钮将扣除使用次数</p>
+            </div>
+            <div class="preview-content">
+                <div class="preview-item">
+                    <span class="preview-label">主题:</span>
+                    <span class="preview-value" id="previewSubject"></span>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-label">发件人:</span>
+                    <span class="preview-value" id="previewFrom"></span>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-label">时间:</span>
+                    <span class="preview-value" id="previewDate"></span>
+                </div>
+            </div>
+            <div class="preview-actions">
+                <button class="view-mail-btn" id="viewMailBtn" onclick="viewFullMail()">查看完整邮件</button>
+            </div>
+        </div>
+        
         <div class="mail-display" id="mailDisplay">
             <div class="mail-header">
                 <div class="mail-subject" id="mailSubject"></div>
@@ -6751,6 +7274,7 @@ def api_admin_generate_card_api_page(card_key):
         async function getMail() {{
             const loading = document.getElementById('loading');
             const mailDisplay = document.getElementById('mailDisplay');
+            const mailPreview = document.getElementById('mailPreview');
             const getMailBtn = document.querySelector('.get-mail-btn');
             
             let email;
@@ -6779,9 +7303,10 @@ def api_admin_generate_card_api_page(card_key):
             getMailBtn.disabled = true;
             getMailBtn.textContent = '获取中...';
             mailDisplay.style.display = 'none';
+            mailPreview.style.display = 'none';
             
             try {{
-                const response = await fetch('/api/get_mail', {{
+                const response = await fetch('/api/preview_mail', {{
                     method: 'POST',
                     headers: {{
                         'Content-Type': 'application/json',
@@ -6795,31 +7320,21 @@ def api_admin_generate_card_api_page(card_key):
                 
                 const data = await response.json();
                 
-                if (data.success) {{
-                    if (data.mail) {{
-                        displayMailWithCardInfo(data);
-                        // 添加连接状态到成功消息
-                        let successMessage = '邮件获取成功';
-                        if (data.proxy && data.proxy.enabled) {{
-                            successMessage += ' (代理)';
-                        }} else {{
-                            successMessage += ' (直连)';
-                        }}
-                        showToast(successMessage, 'success');
+                if (data.success && data.preview) {{
+                    // 显示邮件预览
+                    displayMailPreview(data.preview, email);
+                    
+                    // 添加连接状态到成功消息
+                    let successMessage = '邮件标题获取成功';
+                    if (data.proxy && data.proxy.enabled) {{
+                        successMessage += ' (代理)';
                     }} else {{
-                        // 添加连接状态到无邮件消息  
-                        let noMailMessage = '邮箱中暂无邮件';
-                        if (data.proxy && data.proxy.enabled) {{
-                            noMailMessage += ' (代理)';
-                        }} else {{
-                            noMailMessage += ' (直连)';
-                        }}
-                        showToast(noMailMessage, 'info');
+                        successMessage += ' (直连)';
                     }}
+                    showToast(successMessage, 'success');
                 }} else {{
                     // 添加连接状态到错误消息
                     let errorMessage = data.message || '获取邮件失败';
-                    // 检查消息是否已经包含连接指示符，避免重复添加
                     const hasConnectionInfo = /\\(直连\\)|\\(代理\\)|\\(通过.*\\)|\\(代理连接.*\\)/.test(errorMessage);
                     
                     if (!hasConnectionInfo) {{
@@ -6844,6 +7359,89 @@ def api_admin_generate_card_api_page(card_key):
                 loading.style.display = 'none';
                 getMailBtn.disabled = false;
                 getMailBtn.textContent = '获取邮件';
+            }}
+        }}
+        
+        function displayMailPreview(preview, email) {{
+            const mailPreview = document.getElementById('mailPreview');
+            
+            // 更新预览内容
+            document.getElementById('previewSubject').textContent = preview.subject || '(无主题)';
+            document.getElementById('previewFrom').textContent = preview.from || '未知';
+            document.getElementById('previewDate').textContent = preview.date || '未知';
+            
+            // 存储email用于后续查看完整邮件
+            mailPreview.dataset.email = email;
+            
+            // 显示预览区域
+            mailPreview.style.display = 'block';
+        }}
+        
+        async function viewFullMail() {{
+            const loading = document.getElementById('loading');
+            const mailDisplay = document.getElementById('mailDisplay');
+            const mailPreview = document.getElementById('mailPreview');
+            const viewMailBtn = document.getElementById('viewMailBtn');
+            
+            const email = mailPreview.dataset.email;
+            
+            if (!email) {{
+                showToast('无效的邮箱地址', 'error');
+                return;
+            }}
+            
+            // 显示加载状态
+            loading.style.display = 'block';
+            viewMailBtn.disabled = true;
+            viewMailBtn.textContent = '加载中...';
+            
+            try {{
+                const response = await fetch('/api/view_mail', {{
+                    method: 'POST',
+                    headers: {{
+                        'Content-Type': 'application/json',
+                        'X-Card-Key': '{card_key}'
+                    }},
+                    body: JSON.stringify({{ 
+                        email: email,
+                        card_key: '{card_key}'
+                    }})
+                }});
+                
+                const data = await response.json();
+                
+                if (data.success && data.mail) {{
+                    // 隐藏预览，显示完整邮件
+                    mailPreview.style.display = 'none';
+                    displayMail(data.mail);
+                    
+                    // 显示卡密使用信息
+                    if (data.card_info) {{
+                        const cardInfo = data.card_info;
+                        let message = '';
+                        
+                        if (cardInfo.is_same_mail) {{
+                            message = `这是同一封邮件，未扣除使用次数。剩余: ${{cardInfo.remaining_uses}}/${{cardInfo.total_uses}}`;
+                        }} else if (cardInfo.count_deducted) {{
+                            message = `新邮件查看成功！已扣除使用次数。剩余: ${{cardInfo.remaining_uses}}/${{cardInfo.total_uses}}`;
+                        }} else {{
+                            message = `邮件查看成功！剩余使用次数: ${{cardInfo.remaining_uses}}/${{cardInfo.total_uses}}`;
+                        }}
+                        
+                        showToast(message, 'success', 5000);
+                    }}
+                }} else {{
+                    showToast(data.message || '查看邮件失败', 'error');
+                }}
+                
+            }} catch (error) {{
+                console.error('API请求失败:', error);
+                showToast('网络请求失败，请检查网络连接', 'error');
+            }} finally {{
+                // 隐藏加载状态
+                loading.style.display = 'none';
+                viewMailBtn.disabled = false;
+                viewMailBtn.textContent = '查看完整邮件';
             }}
         }}
         
